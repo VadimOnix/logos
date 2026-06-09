@@ -16,7 +16,13 @@
 3. **Виртуальные подсети.** Роутеры одного тенанта объединяются в overlay-сеть на WireGuard: устройства за разными роутерами видят друг друга в сетевом окружении, как будто находятся в одной LAN — «Tailscale для целых сетей, а не отдельных устройств».
 4. **Мульти-тенантность для MSP.** Один сервер обслуживает многих клиентов: организации, роли, шаблоны конфигураций, массовые операции.
 
-**Модель дистрибуции:** open-core. Ядро (control plane + агент) — свободное ПО, которое можно развернуть у себя. Монетизация — managed cloud (хостинг control plane) с тарификацией за подключённую ноду. Подробности — в [pricing.md](./pricing.md), анализ конкурентов — в [market-analysis.md](./market-analysis.md).
+**Модель дистрибуции:** open-core с разделением изданий (по образцу GitLab CE/EE):
+
+- **Community Edition** — открытая self-hosted версия, бесплатно, с намеренными ограничениями (точный набор — открытый вопрос; кандидаты: одна организация, только локальная аутентификация, single-instance, стандартный брендинг), которые снимаются апгрейдом до **Enterprise Edition** — платной on-premise лицензии с enterprise-модулями (мульти-тенантность, SSO/SAML, audit-export, HA, white-label) и поддержкой.
+- **Logos Cloud** — managed-облако с тарификацией за подключённую ноду.
+- **Logos Cloud RU** — отдельное изолированное облако для абонентов из России: хранение и обработка данных на территории РФ в соответствии со 152-ФЗ и требованием локализации (242-ФЗ), оплата в рублях, **отдельный сайт-витрина**, на который зарубежные пользователи не попадают.
+
+Подробности — в [pricing.md](./pricing.md), анализ конкурентов — в [market-analysis.md](./market-analysis.md).
 
 **Целевая аудитория:** MSP и малый бизнес, обслуживающие парки роутеров у клиентов; распределённые команды, объединяющие офисы и дома сотрудников в одну виртуальную сеть. Вторичная аудитория — продвинутые домашние пользователи OpenWrt.
 
@@ -141,7 +147,16 @@ Acceptance criteria:
 - Image builder service: download a sysupgrade image pre-baked with agent + headend host + enrollment key.
 - **Logos Cloud**: hosted control plane, billing per node (see pricing.md).
 
-### 5.3 Future (v2+)
+### 5.3 Editions & distribution (packaging requirements)
+
+| Channel | What it is | Release |
+|---|---|---|
+| **Community Edition (CE)** | Open-source self-hosted control plane + agent. Full core (enrollment, config, packages, monitoring, overlay) with deliberate, *buyer-based* limitations that form the EE upgrade path. Gate set TBD (see §11 and pricing.md §1.1); candidates: single organization, local auth only, single-instance, standard branding. Never node-count caps, never data-path limits. | MVP |
+| **Enterprise Edition (EE)** | Paid on-prem license over the same deployment: removes CE limits, adds enterprise modules (multi-tenancy, SSO/SAML/SCIM, audit/SIEM export, HA clustering, white-label) + support. EE modules are a separate proprietary distribution — no license-key checks inside open code. In-place CE→EE upgrade is a hard product requirement. | v1.0 |
+| **Logos Cloud (Global)** | Managed hosted control plane, per-node billing, bundles EE feature set at Team/MSP tiers. | v1.0 |
+| **Logos Cloud RU** | Dedicated, fully isolated Russia region: data stored/processed in RF data centers (152-ФЗ, 242-ФЗ localization), RF legal entity as operator (Roskomnadzor registration), RUB billing via local processors, **separate Russian-language storefront with strict audience separation** — foreign users must not land on the RU offering (geo/billing-country checks; disjoint marketing), and the global site does not surface it. No cross-region data replication. | v1.x (after Global cloud; legal review gate) |
+
+### 5.4 Future (v2+)
 
 - Generic Linux node support (Debian/Alpine "node" package; nftables/networkd drivers alongside UCI).
 - App marketplace on nodes (AdGuard Home, Tor, SQM presets as one-click apps).
@@ -158,6 +173,7 @@ Acceptance criteria:
 | **Resilience** | Node keeps routing if control plane is unreachable (control plane is *not* in the data path except relays); agent retries with backoff + jitter; config changes are atomic with auto-revert if the node loses connectivity after apply (like `uci` rollback / "safe mode"). |
 | **Scale** | Single control-plane instance: 10k nodes; horizontal scaling for cloud. Heartbeat interval adaptive to fleet size. |
 | **Privacy** | Self-hosted = zero phone-home (opt-in anonymous telemetry only). Cloud: metrics/config metadata only, documented data inventory, EU region option. |
+| **Regional compliance** | Cloud must be **region-shardable with zero cross-region data flow** (accounts, registry, configs, metrics, backups, admin tooling per region) — prerequisite for Logos Cloud RU (152-ФЗ/242-ФЗ data localization) and future EU/other sovereignty regions. Storefront/signup must support per-region audience separation. |
 | **Compatibility** | OpenWrt 23.05+ (opkg) and 24.10+/25.x (apk); all-target builds via OpenWrt SDK; LuCI coexistence (Logos does not replace local LuCI). |
 | **Licensing** | Core (agent + control plane): Apache-2.0 or AGPLv3 (decide before first release — see market-analysis.md §licensing); cloud-only/enterprise modules in a separate repo/license (open-core split: SSO, white-label, long metric retention, audit export). |
 
@@ -230,6 +246,8 @@ Key decisions (to be validated in design docs, not here):
 3. Build our own DERP-like relay vs embed/reuse an existing one.
 4. Overlay IPAM scheme: 100.64.0.0/10-style CGNAT space per tenant vs configurable.
 5. Brand/name check: "logos" collision review (trademark, package names) before first public release.
+6. **CE limitation set** (the EE upgrade path): final selection from the candidates in pricing.md §1.1 — decide before 1.0, publish with the stewardship promise.
+7. **Logos Cloud RU**: legal structure (RF entity, Roskomnadzor operator registration, 187-ФЗ/СОРМ applicability), local infrastructure provider, RUB price list, and RU competitor research — all open; legal review is a launch gate.
 
 ---
 

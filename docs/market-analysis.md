@@ -141,7 +141,12 @@ Evidence gathered (details in pricing research, §6 sources):
 - **AGPL-3.0** is the proven "defensible but OSI" choice: Grafana's 2021 relicense and Plausible CE drew minimal backlash; NetBird uses it for exactly our architecture (BSD client + AGPL control plane). Blocks closed-source cloud resellers.
 - **BSL/SSPL-style moves** (ZeroTier BSL, Netmaker's SSPL era) consistently produced community backlash and forks; avoid.
 - **Apache-2.0 everything** (Supabase) works when the moat is operational rather than legal — but our control plane is a single easy binary by design, so the operational moat is deliberately weak.
-- **Recommendation:** **agent + client libraries: Apache-2.0 or BSD** (maximize embedding in firmware builds, like NetBird/Tailscale clients); **control plane: AGPL-3.0**; cloud-only modules (billing, SSO, white-label) proprietary in a separate repo. Publish a GitLab-style stewardship promise: features never move from open to paid.
+- **GitLab's CE/EE structure** is the proven template for "limited open self-hosted + paid on-prem enterprise upgrade": MIT core, proprietary EE modules in the same deployment, gates chosen by *buyer* ("who cares the most about the feature"), and a published stewardship promise that nothing ever moves CE→EE. The risk to manage: if CE limits hit hobbyists (node caps, data-path limits), the community reacts as it did to ZeroTier — gates must be organizational features only.
+- **Recommendation:** **agent + client libraries: Apache-2.0 or BSD** (maximize embedding in firmware builds, like NetBird/Tailscale clients); **control plane CE: AGPL-3.0**; EE/cloud modules (multi-tenancy, SSO, audit export, HA, white-label, billing) proprietary in a separate repo, forming the CE→EE on-prem upgrade path (final gate set: open question, pricing.md §1.1). Publish a GitLab-style stewardship promise: shipped CE features never move to paid.
+
+### Regional note: Russia (research TODO)
+
+Logos plans a dedicated, isolated RU cloud region with a separate storefront (pricing.md §3.2), motivated by 152-ФЗ/242-ФЗ data-localization requirements. Working market hypotheses, **not yet covered by the 2026-06-09 research pass**: Meraki/Aruba/UniFi cloud offerings are withdrawn from or impractical in the RF market; data-localization law blocks RU companies from foreign SaaS; local alternatives for multi-vendor OpenWrt fleet management are scarce. A dedicated competitor/pricing research pass for the RU market (incl. local NMS vendors, Kvant/«Базальт»-class import-substitution players, hosting costs at Selectel/Yandex Cloud/Rostelecom-DC) is required before roadmap commitment.
 
 ## 6. Sources
 

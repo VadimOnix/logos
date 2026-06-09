@@ -7,7 +7,13 @@
 
 ## Краткое резюме (Russian Executive Summary)
 
-**Модель — open-core по образцу Tailscale/Grafana:** ядро (агент + control plane) открыто и бесплатно self-hosted без лицензионных ключей; монетизация — managed-облако **Logos Cloud** с тарификацией **за подключённую ноду** и проприетарными cloud/enterprise-модулями (SSO/SAML, audit-export, white-label, биллинг).
+**Модель — open-core с разделением изданий по образцу GitLab CE/EE:**
+
+- **Community Edition (CE)** — открытая self-hosted версия, бесплатно. Содержит всё ядро (агент, enrollment, конфиги, пакеты, мониторинг, overlay), но **с намеренными ограничениями**, снимаемыми апгрейдом до Enterprise (точный набор гейтов — открытый вопрос, кандидаты в §1.1: мульти-тенантность, SSO/SAML, audit-export, HA-кластеризация, white-label, лимиты ретеншена).
+- **Enterprise Edition (EE, on-premise)** — платная лицензия на тот же self-hosted дистрибутив: снимает ограничения CE и добавляет enterprise-модули + поддержку. Ориентир цены — $3–4/нода/мес в годовом исчислении (черновик, §3.1).
+- **Logos Cloud** — managed-облако с тарификацией **за подключённую ноду**.
+
+**Отдельное направление — Logos Cloud RU (§3.2):** изолированный регион для абонентов из России с хранением и обработкой данных на территории РФ (152-ФЗ, локализация по 242-ФЗ), оплатой в рублях через локальные платёжные системы и **отдельным сайтом-витриной**, на который зарубежные пользователи не попадают (и наоборот — RU-витрина не связана с глобальным сайтом). Потребует отдельного юрлица, регистрации оператора ПДн в Роскомнадзоре и полной инфраструктурной изоляции региона.
 
 **Предлагаемая тарифная сетка облака:**
 
@@ -26,30 +32,58 @@
 
 ---
 
-## 1. Model: Open-Core, Cloud-Funded
+## 1. Model: Open-Core with a CE/EE Edition Split (GitLab-style)
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│  OPEN (free forever, no license keys)                          │
+│  COMMUNITY EDITION (CE) — open source, free self-hosted        │
 │  • logos-agent (Apache-2.0/BSD) — embeddable in firmware       │
 │  • Control plane core (AGPL-3.0): enrollment, config push,     │
 │    packages, monitoring, overlay coordinator, basic alerts,    │
 │    single-org RBAC, API                                        │
 │  • Relay server (like Tailscale's open DERP)                   │
+│  • Deliberately limited — see §1.1 (upgrade path to EE)        │
 ├────────────────────────────────────────────────────────────────┤
-│  PAID — Logos Cloud (hosted) and/or commercial modules         │
-│  • Hosting itself: HA control plane, relay fleet, backups      │
-│  • SSO/SAML/SCIM · audit-log export/SIEM · white-label         │
-│  • Long metric retention · image-builder service at scale      │
-│  • Multi-tenant MSP console · consolidated billing             │
+│  ENTERPRISE EDITION (EE) — paid license, same on-prem deploy   │
+│  • Removes CE limits + adds enterprise modules:                │
+│    SSO/SAML/SCIM · audit-log export/SIEM · white-label ·       │
+│    multi-tenant MSP console · HA clustering · support          │
+├────────────────────────────────────────────────────────────────┤
+│  LOGOS CLOUD — managed hosting (per-node billing)              │
+│  • Two isolated offerings: Global and RU region (§3.2)         │
+│  • HA control plane, relay fleet, backups, image builder       │
+│  • Cloud tiers bundle EE feature set at Team/MSP levels        │
 └────────────────────────────────────────────────────────────────┘
 ```
 
 Rationale (evidence in [market-analysis.md](./market-analysis.md) §5 and research sources below):
 
-- **The Tailscale cut line** — open clients + open relay, monetize the hosted control plane — is the cleanest and best-received split; even a community reimplementation of our server (a "Headscale of Logos") would act as a funnel, not a threat.
-- **The GitLab rule** for what's paid: gate by *buyer*, not capability. Everything an engineer needs to run a network is open; team-scale collaboration is Team; compliance/management-at-scale (SSO, audit, white-label) is MSP/Enterprise.
-- **Stewardship promise published on day 1:** features never move from open to paid (anti-ZeroTier/Netmaker pattern — both suffered backlash after tightening: ZeroTier free tier 50→25→10 devices and controller removal from binaries; Netmaker's SSPL era and killed free SaaS tier).
+- **The Tailscale cut line** — open clients + open relay — stays: the agent must be maximally embeddable in firmware images.
+- **The GitLab CE/EE precedent** is the model: a genuinely useful open core, plus a paid Enterprise Edition *of the same self-hosted product* so an on-prem customer has an upgrade path without migrating to the cloud. GitLab's rule decides what gates: features whose buyer is a manager/compliance officer go to EE; features whose buyer is the engineer stay in CE.
+- **Stewardship promise published on day 1, reworded for the edition split:** *a feature that has shipped in CE never moves to EE or cloud* — new enterprise-buyer features may launch as EE-only, but nothing is ever clawed back (anti-ZeroTier/Netmaker pattern — both suffered backlash after tightening: ZeroTier free tier 50→25→10 devices and controller removal from binaries; Netmaker's SSPL era and killed free SaaS tier). This keeps the CE limitations honest: they are *absences*, never *removals*.
+
+### 1.1 CE limitations — the EE upgrade path (OPEN QUESTION)
+
+The exact CE gate set is **not decided yet**. Constraints any candidate must satisfy:
+
+1. **Never the data path.** Mesh connectivity, config push, package management on any number of nodes stays in CE — crippling the core would betray the open-source positioning and kill the funnel (see ZeroTier backlash, market-analysis §2.4).
+2. **Buyer-based** (GitLab rule): the limitation must only hurt once an organization — not a hobbyist — depends on it.
+3. **Enforceable without phone-home DRM** in AGPL code: EE modules live in a separate proprietary repo/binary, CE simply doesn't contain them (GitLab/NetBird structure), rather than license-key checks inside open code.
+
+Candidate gates, ranked by fit with these constraints:
+
+| Candidate CE limit | EE unlock | Fit |
+|---|---|---|
+| Single organization (no multi-tenancy) | Multi-tenant MSP console | ✅ strong — MSPs are the paying buyer by definition |
+| Local auth only (email/password, 2FA) | OIDC/SAML/SSO, SCIM | ✅ strong — the industry-standard gate (Grafana, Tailscale, Supabase, GitLab all do it) |
+| Basic audit (in-app log, short retention) | Audit export/SIEM streaming, long retention | ✅ strong |
+| Single-instance deployment | HA clustering, horizontal scaling | ✅ strong — only large fleets need it |
+| Standard branding | White-label panel | ✅ strong |
+| Community support | Support contract w/ SLA | ✅ always |
+| Metric retention cap (e.g., 30 days) | Unlimited/configurable retention | ⚠️ medium — easy to work around externally; fine as soft gate |
+| Node-count cap in CE | Uncapped | ❌ avoid — punishes the engineer-buyer, invites forks; node caps belong to *cloud* tiers only |
+
+**Decision needed before 1.0** (tracked as PRD §11 open question): pick the final set from the ✅ rows. Recommendation: ship CE = single-org, local-auth, single-instance, standard-branding; EE = everything above it.
 
 ## 2. Competitor Price Anchors (accessed 2026-06-09)
 
@@ -105,7 +139,34 @@ Unit of billing: **assigned node** (a device enrolled in the tenant), not "activ
 | Support | community | standard (next business day) | priority | SLA, dedicated |
 | Extras | — | — | consolidated billing across tenants, partner margin program | BYO-cloud deployment, MSA |
 
-Self-hosted remains free and unlimited forever; paid self-hosted support contracts (and an optional "supported enterprise self-hosted" bundle with the proprietary modules) can be added later without changing this table.
+Self-hosted **CE** remains free with unlimited nodes (its limits are feature gates, never node caps — see §1.1); the paid self-hosted path is **EE** below.
+
+### 3.1 Enterprise Edition (on-premise) pricing — draft
+
+| | **EE (on-prem)** |
+|---|---|
+| Price | **$3.50/node/mo equivalent, billed annually** ($42/node/yr), volume breaks mirroring cloud MSP tier (≥100 → $3, ≥500 → $2.50) |
+| Minimum | 25 nodes ($1,050/yr floor) — keeps EE from cannibalizing cloud Team |
+| Includes | All CE features + EE modules (§1.1: multi-tenancy, SSO/SAML/SCIM, audit/SIEM, HA, white-label) + standard support; priority support and custom SLA as add-ons |
+| Logic | Priced between cloud Team ($2 incl. hosting) and cloud MSP ($4 incl. hosting): the customer provides the infrastructure, we provide software + support. Anchors: Netmaker on-prem Pro self-service licenses; Teltonika "private RMS" (quote-only — we win by publishing the price); GitLab Premium $29/user/yr-scale economics translated to per-node units |
+| Trial | 30-day full EE trial on top of any CE install (Netmaker's 2-week on-prem trial precedent, doubled) |
+
+Status: **draft numbers** — validate against the final CE gate set (§1.1) and first 10 design-partner conversations before publishing.
+
+### 3.2 Logos Cloud RU — dedicated Russia region
+
+A separate cloud offering for customers in Russia, driven by data-localization law; **architecturally identical, commercially and legally isolated** from the global cloud.
+
+| Aspect | Decision |
+|---|---|
+| **Storefront** | Separate marketing site + signup (e.g., `logos-cloud.ru`), in Russian, with RU payment methods. **Strict audience separation:** the global site does not link to or mention the RU storefront, and the RU storefront does not serve foreign users — geo/IP + billing-country checks at signup, marketing channels kept disjoint. Goal: foreign users never land on the RU offering and vice versa. |
+| **Data residency** | All control-plane data (accounts, device registry, configs, metrics, logs) stored and processed in data centers on RF territory — compliance with **152-ФЗ «О персональных данных»** including the **242-ФЗ localization requirement** (personal data of RF citizens recorded/stored in databases located in Russia). Candidate infrastructure: Selectel / Yandex Cloud / Rostelecom-DC (cost research TODO). |
+| **Legal** | Separate RF legal entity as the contracting party and personal-data operator; **operator registration with Roskomnadzor**; RU-law privacy policy and DPA; assess applicability of **187-ФЗ (КИИ)** if customers include critical-infrastructure operators, and of СОРМ-related obligations — legal review required before launch (flagged: this analysis is a product assumption, not legal advice). |
+| **Isolation** | Dedicated control-plane deployment, relay fleet, database, backups and admin tooling inside RF; no cross-region replication with the global cloud; separate status page and support queue. An RU tenant's data never leaves the region. |
+| **Billing** | RUB pricing via local processors (ЮKassa/CloudPayments-class); price list set independently of USD list (purchasing-power and cost-base adjusted, draft: ₽150–200/нода/мес Team-уровень — validate against local hosting costs and willingness-to-pay). |
+| **Self-hosted angle** | CE/EE work anywhere by definition — for RF organizations that cannot use any foreign-linked cloud at all, **EE on-prem is the compliance-maximalist answer**, and the RU storefront sells both (RU cloud + EE licenses). |
+
+Why a separate region is worth the overhead: global vendor clouds (Meraki, Aruba Central, UniFi hosted) have withdrawn from or are unusable in the RF market, while data-localization law blocks RU companies from foreign SaaS — a supply vacuum for exactly our product category. *Flag: RU competitor/pricing landscape was not covered by the 2026-06-09 research pass — dedicated research TODO before committing roadmap dates.*
 
 ### Why these numbers
 
@@ -144,8 +205,8 @@ Break-even sanity check: at $2/node and ~$1.6k/mo fixed costs (infra + tooling, 
 1. **Free tier is a real free tier, not a trial** — it's the marketing budget (Tailscale doctrine); size it just above homelab scale.
 2. **Predictable unit**: assigned nodes, never "active this month" (Tailscale's v4 reversal).
 3. **Buyer-based gates** (GitLab): engineer → open; team lead → Team; compliance/MSP-owner → MSP/Enterprise. The standard paid set — SAML/SSO, SCIM, audit/SIEM, white-label, SLA — matches what every reference company gates.
-4. **Stewardship promise published**: no feature ever moves open → paid; accept community PRs that open paid features at our discretion, GitLab-style.
-5. **License split**: agent Apache-2.0/BSD; control plane AGPL-3.0; cloud modules proprietary, separate repo (NetBird-proven structure; avoids BSL/SSPL backlash).
+4. **Stewardship promise published**: no shipped CE feature ever moves to EE/paid; new enterprise-buyer features may launch EE-only; accept community PRs that open paid features at our discretion, GitLab-style.
+5. **License split**: agent Apache-2.0/BSD; control plane (CE) AGPL-3.0; EE/cloud modules proprietary, separate repo — no license-key checks inside open code (NetBird/GitLab-proven structure; avoids BSL/SSPL backlash).
 6. **Never brick** (anti-Meraki): payment lapse degrades cloud management after grace, never the data path. Make this a published guarantee — it is a sales weapon against the strongest incumbent's biggest weakness.
 7. **MSP margin story from day 1**: volume breaks + partner discount + consolidated billing — none of the mesh-VPN vendors had this early; it's our wedge into the channel.
 8. **Keep a self-serve paid tier between free and enterprise** from the start (Tailscale's costly Personal Plus retirement / re-segmentation lesson).
