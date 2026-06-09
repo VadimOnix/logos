@@ -11,10 +11,14 @@
 
 **Ключевые сценарии:**
 
-1. **Zero-touch подключение.** Пользователь включает роутер с прошитым агентом, подключается к его Wi-Fi/LAN — и его перебрасывает на страницу первичной настройки (captive-portal-style onboarding). Там он авторизуется, задаёт базовые параметры домашней/офисной сети (SSID, пароль, часовой пояс) и адрес головного сервера. Роутер автоматически регистрируется на сервере и подтягивает готовую конфигурацию своего тенанта.
-2. **Администрирование через панель.** Управление установленными пакетами (opkg/apk), push конфигураций (UCI), обновление прошивок, мониторинг состояния сети (uptime, трафик, клиенты, загрузка CPU/RAM/flash), алерты.
-3. **Виртуальные подсети.** Роутеры одного тенанта объединяются в overlay-сеть на WireGuard: устройства за разными роутерами видят друг друга в сетевом окружении, как будто находятся в одной LAN — «Tailscale для целых сетей, а не отдельных устройств».
-4. **Мульти-тенантность для MSP.** Один сервер обслуживает многих клиентов: организации, роли, шаблоны конфигураций, массовые операции.
+1. **Три пути подключения ноды, все — максимально простые:**
+   - **Adoption существующего роутера**: пользователь запускает скрипт (одна команда) или GUI-утилиту на своём компьютере, вводит логин/пароль админа роутера и домен/IP головного сервера — утилита сама (локально, по SSH/ubus, не передавая креды на сервер) устанавливает агента, делает снапшот текущего состояния и регистрирует роутер в панели.
+   - **Zero-touch для новых устройств**: пользователь включает роутер с прошитым агентом, подключается к его Wi-Fi/LAN — и его перебрасывает на страницу первичной настройки (captive-portal-style onboarding). Там он авторизуется, задаёт базовые параметры сети (SSID, пароль, часовой пояс) и адрес головного сервера; роутер автоматически регистрируется и подтягивает готовую конфигурацию тенанта.
+   - **Вендорская сборка**: вендор/MSP собирает прошивку с уже зашитой конфигурацией под свой домен/IP/хост (image builder) — устройства автоматически приходят в его панель из коробки.
+2. **Лёгкое отключение (no lock-in by design).** Пользователь в любой момент выводит роутер из-под управления — по желанию с полной очисткой: удалением всех установленных платформой пакетов и откатом конфигурации к снапшоту, снятому при подключении. Роутер продолжает работать.
+3. **Администрирование через панель.** Управление установленными пакетами (opkg/apk), push конфигураций (UCI), обновление прошивок, мониторинг состояния сети (uptime, трафик, клиенты, загрузка CPU/RAM/flash), алерты.
+4. **Виртуальные подсети.** Роутеры одного тенанта объединяются в overlay-сеть на WireGuard: устройства за разными роутерами видят друг друга в сетевом окружении, как будто находятся в одной LAN — «Tailscale для целых сетей, а не отдельных устройств».
+5. **Мульти-тенантность для MSP.** Один сервер обслуживает многих клиентов: организации, роли, шаблоны конфигураций, массовые операции.
 
 **Модель дистрибуции:** open-core с разделением изданий (по образцу GitLab CE/EE):
 
@@ -70,7 +74,25 @@ One sentence: *what Tailscale did for connecting devices, Logos does for owning 
 
 ## 4. User Stories & Key Flows
 
-### 4.1 Zero-touch enrollment (the signature flow)
+There are **three enrollment paths** into management (§4.1–4.3) and one guaranteed exit (§4.4). Ease of *both* entry and exit is a core product value: the anti-Meraki promise is "adopt in minutes, leave in minutes, keep a working router either way."
+
+### 4.1 Adopting an existing OpenWrt router (script / GUI)
+
+> As a user who already runs OpenWrt, I hand my router over to management by running one tool and typing two things: my router's admin credentials and the headend's domain/IP.
+
+1. User downloads the **adoption tool** — either a one-line shell script (`curl … | sh` on the router itself or executed from a PC) or a **cross-platform GUI app** (desktop; discovers OpenWrt devices on the LAN).
+2. User enters: router admin login/password, and the control-plane host (domain or IP) — plus sign-in/claim code for that control plane.
+3. The tool connects to the router **locally over SSH/ubus from the user's machine — admin credentials are used only for this local session and are never transmitted to or stored on the control plane**.
+4. The tool: verifies device compatibility (arch, flash/RAM, OpenWrt version), takes a **pre-adoption snapshot** (installed package list + `uci export` + checksums of touched files), installs `logos-agent` via opkg/apk, and triggers enrollment against the given headend.
+5. The router appears in the user's panel; the tool reports success and prints the node's page URL.
+
+Acceptance criteria:
+- One command / under 5 clicks in the GUI; total time < 2 minutes on a typical device.
+- Works when the user's machine and router are on the same LAN; remote adoption over an existing SSH path also works (CLI).
+- Fails safely: incompatible device → clear message, nothing installed; mid-install failure → automatic rollback to the snapshot.
+- The same tool can adopt a *fleet* (CSV/range of IPs + credentials) for MSP migrations — v1.
+
+### 4.2 Zero-touch enrollment of a pre-flashed device (the signature flow)
 
 > As an end user with zero networking knowledge, I plug in the router and get a working, centrally managed network in under 5 minutes.
 
@@ -87,7 +109,32 @@ Acceptance criteria:
 - Re-flashing/reset produces a clean re-enrollment path; the panel shows the old node as replaceable.
 - An admin can also pre-register nodes by serial/key (batch import) so devices auto-claim without a code (true zero-touch for MSP shipments).
 
-### 4.2 Fleet administration
+### 4.3 Vendor builds: pre-configured firmware images
+
+> As a vendor/MSP, I compile (or order from the image-builder service) an OpenWrt image pre-baked with my domain/IP/headend and enrollment policy, so devices I ship come online in my panel out of the box.
+
+- **Build profile** = headend host + enrollment key/policy + optional config template + optional branding; consumed two ways:
+  1. **Self-service toolchain**: an open `logos-imagebuilder` wrapper around the OpenWrt ImageBuilder/SDK — vendor runs it locally/CI, fully offline-capable (CE feature; mirrors how OpenWrt users already build).
+  2. **Hosted image-builder service** (cloud / EE): pick target device + build profile in the panel, download a signed sysupgrade image.
+- Devices from such an image skip the headend question in first-run setup (§4.2) — the end user only sets SSID/password/timezone, or nothing at all if the profile says "fully silent enrollment".
+- Acceptance: a vendor with no OpenWrt build experience produces a working pre-configured image for a supported device in < 30 minutes using the hosted service.
+
+### 4.4 Clean offboarding (no lock-in by design)
+
+> As a user, I can take my router out of management at any time — and, if I choose, leave it exactly as it was before adoption.
+
+Two levels, available from both the panel (node → "Remove from management") and the device itself (`logos-agent leave`, or the adoption tool/GUI — so an unreachable control plane can never hold a router hostage):
+
+1. **Disconnect**: agent unenrolls, wipes its keys/certs, stops, and uninstalls itself. Everything else (packages, configs pushed while managed) stays — the router keeps working as configured.
+2. **Disconnect + full cleanup (optional)**: additionally removes every package the platform installed and reverts platform-touched configuration using the **pre-adoption snapshot** (§4.1) / first-run baseline (§4.2). Conflicts (e.g., user manually edited a managed file, or removal would break current WAN connectivity) are listed with a confirm/skip choice instead of silent destruction.
+
+Acceptance criteria:
+- Offboarding never requires contacting support and works without internet access to the headend (local command).
+- After "disconnect + cleanup" on an adopted router: package list and `uci export` diff vs the pre-adoption snapshot is empty (excluding explicitly confirmed skips).
+- The panel marks the node as "left" (distinct from "offline"), with an audit record; re-adoption later is a normal §4.1 flow.
+- Server side: tenant data about the node is deletable (GDPR/152-ФЗ hygiene).
+
+### 4.5 Fleet administration
 
 - As an MSP engineer, I group nodes by tenant/site/tag and apply **config templates** (UCI fragments with variables); drift between template and device state is detected and reported.
 - As an admin, I view and manage **installed packages** on a node or a group: list, install, remove, upgrade (`opkg`/`apk`), with rollout in batches and automatic halt on failure spikes.
@@ -95,13 +142,13 @@ Acceptance criteria:
 - As an admin, I open a **remote terminal / LuCI proxy** to any online node through the management channel (audited).
 - Every change is **versioned**; I can diff and roll back a node's config.
 
-### 4.3 Network observability
+### 4.6 Network observability
 
 - As an admin, I see per-node: online/offline, uptime, WAN IP, firmware/agent version, CPU/RAM/flash, traffic per interface, connected clients (DHCP leases / wireless associations), Wi-Fi signal quality.
 - I define **alerts**: node offline > N min, flash > 90%, WAN flapping, new device on LAN (optional). Delivery: email/webhook/Telegram.
 - Metric history with configurable retention (short on self-hosted default; longer retention is a cloud-tier feature).
 
-### 4.4 Virtual subnets (overlay networks)
+### 4.7 Virtual subnets (overlay networks)
 
 > As an IT lead, I select three office routers and one cloud VM, click "create network", and devices behind them can reach each other by IP/name as if on one LAN.
 
@@ -111,7 +158,7 @@ Acceptance criteria:
 - mDNS/DNS: name resolution across the overlay (`node-name.network.logos.internal`), optional mDNS reflection so devices show up in "network neighborhood".
 - Conflict handling: detect overlapping LAN ranges and propose renumbering or NAT mapping.
 
-### 4.5 Multi-tenancy & access (MSP)
+### 4.8 Multi-tenancy & access (MSP)
 
 - Organizations with isolated nodes, networks, templates; an MSP user can hold roles across many orgs.
 - RBAC: owner / admin / operator / read-only.
@@ -135,6 +182,9 @@ Acceptance criteria:
 | F9 | Self-hosted deployment: single `docker compose up` (server + Postgres), docs | Must |
 | F10 | Remote terminal to node via management channel | Should |
 | F11 | Alerts: node offline (email/webhook) | Should |
+| F12 | Adoption tool (CLI/one-line script): router admin creds + headend host → agent installed via local SSH/ubus, pre-adoption snapshot taken, node enrolled; creds never leave the user's machine | Must |
+| F13 | Clean offboarding: `logos-agent leave` + panel action; optional full cleanup (remove platform-installed packages, revert to pre-adoption snapshot) with conflict confirmation; works without headend connectivity | Must |
+| F14 | Self-service image toolchain (`logos-imagebuilder` wrapper over OpenWrt ImageBuilder): bake agent + headend host + enrollment key into a sysupgrade image | Should |
 
 ### 5.2 v1.0 — "MSP-ready"
 
@@ -144,7 +194,8 @@ Acceptance criteria:
 - Overlay ACLs, overlay DNS, overlap detection.
 - Metric history + dashboards; alert rules engine; Telegram/Slack delivery.
 - OIDC/SSO login; 2FA.
-- Image builder service: download a sysupgrade image pre-baked with agent + headend host + enrollment key.
+- Hosted image-builder service with vendor build profiles (headend + enrollment policy + config template + branding): pick a device, download a signed pre-configured sysupgrade image (§4.3).
+- GUI adoption app (cross-platform desktop: LAN discovery of OpenWrt devices, guided adopt/leave) and fleet adoption (CSV/IP-range + credentials) for MSP migrations.
 - **Logos Cloud**: hosted control plane, billing per node (see pricing.md).
 
 ### 5.3 Editions & distribution (packaging requirements)
@@ -213,6 +264,8 @@ Key decisions (to be validated in design docs, not here):
 | Metric | Target (12 mo after MVP) |
 |---|---|
 | Time from flash → managed node (P50) | < 5 min |
+| Adoption of an existing router via tool (P50) | < 2 min |
+| Offboarding with full cleanup leaving zero residue (snapshot diff empty) | 100% of clean runs |
 | Self-hosted installs (telemetry opt-in + docker pulls as proxy) | 1,000+ |
 | GitHub stars / active contributors | 3k+ / 10+ |
 | Nodes under management (cloud) | 2,000+ |

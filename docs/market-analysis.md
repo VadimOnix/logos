@@ -111,6 +111,7 @@ Logos's defensible combination:
 3. **Mesh as a first-class feature with NAT traversal and relays** — vs. OpenWISP's template-provisioned hub-and-spoke tunnels.
 4. **Fleet management as a first-class feature** — vs. all mesh-VPN products.
 5. **Transparent per-node cloud pricing** — vs. quote-only OpenWISP SaaS, GoodCloud Enterprise, private RMS (see [pricing.md](./pricing.md)).
+6. **Frictionless entry *and exit*** — one-command/GUI adoption of an existing OpenWrt router (no reflash) and guaranteed clean offboarding that restores the pre-adoption state. No studied competitor offers both: vendor clouds require their hardware (Meraki even bricks on license expiry), OpenWISP requires manual agent installation, and mesh-VPN tools leave residue at best. "Adopt in minutes, leave in minutes" is a marketable trust guarantee unique in this space.
 
 ### Threats to this positioning
 
