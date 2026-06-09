@@ -9,7 +9,7 @@
 
 **Модель — open-core с разделением изданий по образцу GitLab CE/EE:**
 
-- **Community Edition (CE)** — открытая self-hosted версия, бесплатно. Содержит всё ядро (агент, enrollment, конфиги, пакеты, мониторинг, overlay), но **с намеренными ограничениями**, снимаемыми апгрейдом до Enterprise (точный набор гейтов — открытый вопрос, кандидаты в §1.1: мульти-тенантность, SSO/SAML, audit-export, HA-кластеризация, white-label, лимиты ретеншена).
+- **Community Edition (CE)** — открытая self-hosted версия, бесплатно, с возможностью добровольных донатов (GitHub Sponsors / Open Collective — сигнал здоровья комьюнити, не строка дохода). Содержит всё ядро (агент, enrollment, конфиги, пакеты, мониторинг, overlay), но **с намеренными ограничениями**, снимаемыми апгрейдом до Enterprise (точный набор гейтов — открытый вопрос, кандидаты в §1.1: мульти-тенантность, SSO/SAML, audit-export, **security operations** — детальное аудит-логирование, детект подозрительных паттернов, flow logs, — HA-кластеризация, white-label). Жёсткий принцип: **CE никогда не менее защищённая, только менее наблюдаемая** — гигиена безопасности (mTLS, 2FA, подписанные обновления, патчи) всегда в CE.
 - **Enterprise Edition (EE, on-premise)** — платная лицензия на тот же self-hosted дистрибутив: снимает ограничения CE и добавляет enterprise-модули + поддержку. Ориентир цены — $3–4/нода/мес в годовом исчислении (черновик, §3.1).
 - **Logos Cloud** — managed-облако с тарификацией **за подключённую ноду**.
 
@@ -69,6 +69,7 @@ The exact CE gate set is **not decided yet**. Constraints any candidate must sat
 1. **Never the data path.** Mesh connectivity, config push, package management on any number of nodes stays in CE — crippling the core would betray the open-source positioning and kill the funnel (see ZeroTier backlash, market-analysis §2.4).
 2. **Buyer-based** (GitLab rule): the limitation must only hurt once an organization — not a hobbyist — depends on it.
 3. **Enforceable without phone-home DRM** in AGPL code: EE modules live in a separate proprietary repo/binary, CE simply doesn't contain them (GitLab/NetBird structure), rather than license-key checks inside open code.
+4. **CE is never less *secure*, only less *observable*.** Security **hygiene** — mTLS, secure enrollment, 2FA, signed artifacts, CVE patches, basic operational alerts — is always CE: a product that is remote root on fleets of routers cannot ship a "less safe" free edition (PRD risk §9). What gates to EE is **security operations**: the visibility/detection/compliance layer whose buyer is a security or compliance officer. This mirrors the market exactly: Tailscale holds network flow logs and SIEM log streaming at Premium ($18/user), Grafana holds audit logging at Enterprise, GitLab holds security scanning at Ultimate.
 
 Candidate gates, ranked by fit with these constraints:
 
@@ -77,13 +78,18 @@ Candidate gates, ranked by fit with these constraints:
 | Single organization (no multi-tenancy) | Multi-tenant MSP console | ✅ strong — MSPs are the paying buyer by definition |
 | Local auth only (email/password, 2FA) | OIDC/SAML/SSO, SCIM | ✅ strong — the industry-standard gate (Grafana, Tailscale, Supabase, GitLab all do it) |
 | Basic audit (in-app log, short retention) | Audit export/SIEM streaming, long retention | ✅ strong |
+| Basic operational alerting only | **Security operations suite**: detailed/forensic audit logging, anomaly & suspicious-pattern detection and alerts, overlay flow logs, compliance reporting | ✅ strong — the Tailscale Premium / Grafana Enterprise pattern; bounded by constraint 4 (hygiene never gated) |
 | Single-instance deployment | HA clustering, horizontal scaling | ✅ strong — only large fleets need it |
 | Standard branding | White-label panel | ✅ strong |
 | Community support | Support contract w/ SLA | ✅ always |
 | Metric retention cap (e.g., 30 days) | Unlimited/configurable retention | ⚠️ medium — easy to work around externally; fine as soft gate |
 | Node-count cap in CE | Uncapped | ❌ avoid — punishes the engineer-buyer, invites forks; node caps belong to *cloud* tiers only |
 
-**Decision needed before 1.0** (tracked as PRD §11 open question): pick the final set from the ✅ rows. Recommendation: ship CE = single-org, local-auth, single-instance, standard-branding; EE = everything above it.
+**Decision needed before 1.0** (tracked as PRD §11 open question): pick the final set from the ✅ rows. Recommendation: ship CE = single-org, local-auth, single-instance, standard-branding, operational-alerting-only; EE = everything above it (multi-tenancy, SSO, HA, white-label, security-operations suite).
+
+### 1.2 Donations for CE
+
+CE accepts voluntary donations (GitHub Sponsors / Open Collective) from day 1. Treated strictly as a community-health signal and goodwill channel, **never as a revenue line in the financial model** — across every studied project donations are negligible next to cloud/EE revenue (Plausible: "the cloud subscription is our only source of funding"; Headscale runs on sponsorship precisely because it has no commercial arm). Optional perk ideas (no obligations attached): sponsor badge in the panel footer, name in release notes.
 
 ## 2. Competitor Price Anchors (accessed 2026-06-09)
 
