@@ -9,7 +9,7 @@ PRD §5.1 and are not redefined here.
 
 ## Milestones
 
-### M0 — Skeleton that speaks (this iteration)
+### M0 — Skeleton that speaks (✅ shipped, PR #2)
 
 The thinnest end-to-end slice: a self-hostable control plane a router agent can
 enroll into and stay connected to. Everything later builds on this channel.
@@ -24,13 +24,16 @@ enroll into and stay connected to. Everything later builds on this channel.
 | F13 Clean offboarding | `logos-agent leave` wipes local identity without needing the headend; panel-side remove marks node `left`. Snapshot-based full cleanup is **M2** (with F12 adoption tool) | ✅ started |
 | F9 Self-hosted deployment | `docker compose up` = server + Postgres; single static server binary | ✅ started |
 
-### M1 — A real OpenWrt node
+### M1 — A real OpenWrt node (in progress)
 
-- F1: OpenWrt package (`logos-agent` ipk/apk), procd service, size budget ≤ 1 MB, run on 23.05 + 24.10.
-- F6: interface traffic counters, DHCP leases / wireless associations via `ubus`.
-- F4: UCI config get/set/commit through the channel — versioned server-side, rollback (`uci` safe-apply with auto-revert watchdog).
-- F5: package management per node (opkg/apk list/install/remove/upgrade).
-- mTLS for the agent channel (per-node client certs issued at enrollment; token auth remains the bootstrap).
+- ✅ RPC over the management channel: correlated request/response, bounded concurrency on the agent (foundation for F4/F5/F10).
+- ✅ F5: package management per node — opkg/apk autodetect, list/install/remove/update via RPC + REST + panel.
+- ✅ F6 (partial): interface traffic counters (/proc/net/dev) and DHCP client list (dnsmasq leases) in the heartbeat. `ubus` wireless associations still open.
+- ✅ F4 step 1: read-only `uci export` snapshot via RPC + REST. Write path (set/commit, versioned server-side, rollback with auto-revert watchdog) still open.
+- ✅ F1 (packaging skeleton): OpenWrt feed Makefile + procd init script. Size budget ≤ 1 MB is currently exceeded by Go binaries (~4–5 MB stripped) — mitigation tracked in agent/openwrt/README.md.
+- ⬜ mTLS for the agent channel (per-node client certs issued at enrollment; token auth remains the bootstrap).
+- ⬜ F4 write path: UCI set/commit with server-side versioning and rollback.
+- ⬜ CI job building the agent for OpenWrt targets + size report.
 
 ### M2 — Adoption & offboarding done right
 

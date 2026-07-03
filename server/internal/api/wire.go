@@ -9,7 +9,9 @@ import "encoding/json"
 const (
 	msgHello     = "hello"
 	msgHeartbeat = "heartbeat"
-	msgLeave     = "leave" // server → agent: unenroll yourself
+	msgLeave     = "leave"      // server → agent: unenroll yourself
+	msgRPC       = "rpc"        // server → agent: invoke a method
+	msgRPCResult = "rpc_result" // agent → server: method result
 )
 
 type agentMsg struct {
@@ -26,6 +28,14 @@ type agentMsg struct {
 
 	// leave
 	Reason string `json:"reason,omitempty"`
+
+	// rpc / rpc_result
+	ID     string          `json:"id,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	OK     bool            `json:"ok,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  string          `json:"error,omitempty"`
 }
 
 // enrollRequest is the body of POST /api/v1/enroll.

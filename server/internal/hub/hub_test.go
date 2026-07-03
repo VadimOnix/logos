@@ -1,14 +1,23 @@
 package hub
 
-import "testing"
+import (
+	"context"
+	"encoding/json"
+	"testing"
+)
 
 type fakeConn struct {
 	closed bool
 	left   string
+	calls  []string
 }
 
 func (c *fakeConn) SendLeave(reason string) { c.left = reason }
 func (c *fakeConn) Close()                  { c.closed = true }
+func (c *fakeConn) Call(_ context.Context, method string, _ any) (json.RawMessage, error) {
+	c.calls = append(c.calls, method)
+	return json.RawMessage(`{}`), nil
+}
 
 func TestRegisterReplacesStaleConnection(t *testing.T) {
 	h := New()
@@ -46,4 +55,20 @@ func TestKick(t *testing.T) {
 		t.Errorf("kick did not send leave+close: left=%q closed=%v", c.left, c.closed)
 	}
 	h.Kick("missing", "noop") // must not panic
+}
+
+func TestCall(t *testing.T) {
+	h := New()
+	c := &fakeConn{}
+	h.Register("n1", c)
+
+	if _, err := h.Call(context.Background(), "n1", "packages.list", nil); err != nil {
+		t.Fatalf("Call on online node: %v", err)
+	}
+	if len(c.calls) != 1 || c.calls[0] != "packages.list" {
+		t.Errorf("calls = %v", c.calls)
+	}
+	if _, err := h.Call(context.Background(), "ghost", "x", nil); err != ErrOffline {
+		t.Errorf("Call on offline node: err = %v, want ErrOffline", err)
+	}
 }

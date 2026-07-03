@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -64,6 +65,25 @@ func Run(ctx context.Context, statePath string, log *slog.Logger) error {
 	}
 }
 
+// wsSession serializes writes to the socket: heartbeats from the main loop
+// and rpc_result messages from handler goroutines share one connection.
+type wsSession struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (s *wsSession) send(ctx context.Context, msg wireMsg) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return s.conn.Write(writeCtx, websocket.MessageText, data)
+}
+
 func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
 	wsURL := strings.Replace(st.ServerURL, "http", "ws", 1) + "/api/v1/agent/ws"
 
@@ -83,8 +103,12 @@ func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 	log.Info("management channel established")
 
+	sess := &wsSession{conn: conn}
+	connCtx, cancelConn := context.WithCancel(ctx)
+	defer cancelConn()
+
 	hostname, _ := os.Hostname()
-	if err := sendMsg(ctx, conn, wireMsg{
+	if err := sess.send(connCtx, wireMsg{
 		Type:         msgHello,
 		Hostname:     hostname,
 		AgentVersion: Version,
@@ -93,15 +117,16 @@ func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
 	}); err != nil {
 		return err
 	}
-	if err := sendHeartbeat(ctx, conn); err != nil {
+	if err := sendHeartbeat(connCtx, sess); err != nil {
 		return err
 	}
 
-	// Reader: watch for server-initiated messages (leave).
+	// Reader: server-initiated messages — leave and RPCs (packages, config).
+	rpcSem := make(chan struct{}, rpcConcurrency)
 	readErr := make(chan error, 1)
 	go func() {
 		for {
-			_, data, err := conn.Read(ctx)
+			_, data, err := conn.Read(connCtx)
 			if err != nil {
 				readErr <- err
 				return
@@ -110,10 +135,17 @@ func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
-			if msg.Type == msgLeave {
+			switch msg.Type {
+			case msgLeave:
 				log.Info("leave requested by server", "reason", msg.Reason)
 				readErr <- errLeft
 				return
+			case msgRPC:
+				dispatchRPC(connCtx, msg, log, rpcSem, func(out wireMsg) {
+					if err := sess.send(connCtx, out); err != nil && connCtx.Err() == nil {
+						log.Warn("send rpc result", "err", err)
+					}
+				})
 			}
 		}
 	}()
@@ -127,27 +159,17 @@ func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
 		case err := <-readErr:
 			return err
 		case <-ticker.C:
-			if err := sendHeartbeat(ctx, conn); err != nil {
+			if err := sendHeartbeat(connCtx, sess); err != nil {
 				return err
 			}
 		}
 	}
 }
 
-func sendHeartbeat(ctx context.Context, conn *websocket.Conn) error {
+func sendHeartbeat(ctx context.Context, sess *wsSession) error {
 	metrics, err := json.Marshal(CollectMetrics())
 	if err != nil {
 		return err
 	}
-	return sendMsg(ctx, conn, wireMsg{Type: msgHeartbeat, Metrics: metrics})
-}
-
-func sendMsg(ctx context.Context, conn *websocket.Conn, msg wireMsg) error {
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	return conn.Write(writeCtx, websocket.MessageText, data)
+	return sess.send(ctx, wireMsg{Type: msgHeartbeat, Metrics: metrics})
 }

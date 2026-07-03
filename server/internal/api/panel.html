@@ -53,10 +53,23 @@
 
   <h2>Nodes</h2>
   <table>
-    <thead><tr><th>Name</th><th>Status</th><th>Host</th><th>Agent</th><th>OS / arch</th><th>Load</th><th>Mem</th><th>Last seen</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Status</th><th>Host</th><th>Agent</th><th>OS / arch</th><th>Load</th><th>Mem</th><th>Clients</th><th>Last seen</th><th></th></tr></thead>
     <tbody id="nodes"></tbody>
   </table>
   <div class="muted" id="nodes-empty" hidden>No nodes yet — create a claim code and enroll your first router.</div>
+
+  <section id="detail" hidden>
+    <h2 id="detail-title"></h2>
+    <div class="row" style="margin-bottom:8px">
+      <button id="load-packages">Packages</button>
+      <button id="load-config">UCI config</button>
+      <input id="pkg-name" placeholder="package name" style="width:160px">
+      <button id="pkg-install">Install</button>
+      <button id="pkg-remove" class="danger">Remove</button>
+      <span class="muted" id="detail-busy"></span>
+    </div>
+    <pre id="detail-out" style="max-height:400px;overflow:auto;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:10px;white-space:pre-wrap"></pre>
+  </section>
 </main>
 
 <script>
@@ -107,12 +120,15 @@ async function refreshNodes() {
       (n.os_version || '—') + ' / ' + (n.arch || '—'),
       m.load1 != null ? m.load1.toFixed(2) : '—',
       fmtMem(m),
+      m.dhcp_clients ? String(m.dhcp_clients.length) : '—',
       fmtAgo(n.last_seen_at),
     ].map(v => {
       const td = document.createElement('td');
       if (v && v.html !== undefined) td.innerHTML = v.html; else td.textContent = v;
       return td;
     }));
+    tr.style.cursor = 'pointer';
+    tr.onclick = (e) => { if (e.target.tagName !== 'BUTTON') selectNode(n); };
     const act = document.createElement('td');
     if (n.status !== 'left') {
       const b = document.createElement('button');
@@ -150,6 +166,73 @@ $('login').onsubmit = async (e) => {
 };
 
 $('logout').onclick = async () => { await api('/api/v1/auth/logout', { method: 'POST' }).catch(() => {}); show(false); };
+
+// Node detail (packages / config over the live channel)
+let selected = null;
+
+function selectNode(n) {
+  selected = n;
+  $('detail').hidden = false;
+  $('detail-title').textContent = `Node: ${n.name} (${n.status})`;
+  const m = n.metrics || {};
+  let text = '';
+  if (m.interfaces && m.interfaces.length) {
+    text += 'Interfaces:\n' + m.interfaces.map(i =>
+      `  ${i.name.padEnd(12)} rx ${fmtBytes(i.rx_bytes)}  tx ${fmtBytes(i.tx_bytes)}`).join('\n') + '\n\n';
+  }
+  if (m.dhcp_clients && m.dhcp_clients.length) {
+    text += 'DHCP clients:\n' + m.dhcp_clients.map(c =>
+      `  ${c.ip.padEnd(16)} ${c.mac}  ${c.hostname || ''}`).join('\n') + '\n';
+  }
+  $('detail-out').textContent = text || 'Select an action above.';
+  $('detail').scrollIntoView({ behavior: 'smooth' });
+}
+
+function fmtBytes(b) {
+  if (b == null) return '—';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let i = 0;
+  while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+  return b.toFixed(i ? 1 : 0) + ' ' + units[i];
+}
+
+async function nodeAction(label, fn) {
+  if (!selected) return;
+  $('detail-busy').textContent = label + '…';
+  try {
+    const out = await fn();
+    $('detail-out').textContent = out;
+  } catch (e) {
+    $('detail-out').textContent = 'Error: ' + e.message;
+  } finally {
+    $('detail-busy').textContent = '';
+  }
+}
+
+$('load-packages').onclick = () => nodeAction('loading packages', async () => {
+  const r = await api(`/api/v1/nodes/${selected.id}/packages`);
+  return `${r.manager}: ${r.packages.length} packages installed\n\n` +
+    r.packages.map(p => `${p.name}  ${p.version}`).join('\n');
+});
+
+$('load-config').onclick = () => nodeAction('loading config', async () => {
+  const r = await api(`/api/v1/nodes/${selected.id}/config`);
+  return r.export;
+});
+
+async function pkgMutate(action) {
+  const name = $('pkg-name').value.trim();
+  if (!name) { alert('Enter a package name.'); return; }
+  if (action === 'remove' && !confirm(`Remove package "${name}" from ${selected.name}?`)) return;
+  await nodeAction(action + 'ing ' + name, async () => {
+    const r = await api(`/api/v1/nodes/${selected.id}/packages`, {
+      method: 'POST', body: JSON.stringify({ action, name }),
+    });
+    return `${r.manager} exit code ${r.exit_code}\n\n${r.output}`;
+  });
+}
+$('pkg-install').onclick = () => pkgMutate('install');
+$('pkg-remove').onclick = () => pkgMutate('remove');
 
 $('new-code').onclick = async () => {
   const c = await api('/api/v1/claim-codes', { method: 'POST', body: JSON.stringify({}) }).catch(e => { alert(e.message); return null; });
