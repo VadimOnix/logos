@@ -1,0 +1,172 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logos</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1a1d21; --bg: #fff; --muted: #667085; --line: #e4e7ec;
+          --ok: #12805c; --bad: #b42318; --accent: #175cd3; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e6e8eb; --bg: #101418; --muted: #98a2b3; --line: #2a3138; --ok: #3ccb7f; --bad: #f97066; --accent: #6ca4f8; }
+  }
+  body { margin: 0 auto; max-width: 960px; padding: 24px 16px; font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 28px 0 8px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .status-online { color: var(--ok); font-weight: 600; }
+  .status-offline { color: var(--muted); }
+  .status-left { color: var(--bad); }
+  input { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+  button { font: inherit; border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--bad); }
+  form.login { display: flex; flex-direction: column; gap: 10px; max-width: 320px; margin-top: 40px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  code.claim { font-size: 17px; padding: 4px 8px; border: 1px dashed var(--line); border-radius: 6px; user-select: all; }
+  .error { color: var(--bad); font-size: 13px; min-height: 1em; }
+  header { display: flex; justify-content: space-between; align-items: baseline; }
+</style>
+
+<header>
+  <div><h1>Logos</h1><div class="muted">control plane · MVP</div></div>
+  <div id="whoami" class="row" hidden><span class="muted" id="me-email"></span><button id="logout">Log out</button></div>
+</header>
+
+<form class="login" id="login" hidden>
+  <input type="email" id="email" placeholder="email" autocomplete="username" required>
+  <input type="password" id="password" placeholder="password" autocomplete="current-password" required>
+  <button class="primary" type="submit">Log in</button>
+  <div class="error" id="login-error"></div>
+</form>
+
+<main id="app" hidden>
+  <h2>Enroll a node</h2>
+  <div class="row">
+    <button class="primary" id="new-code">New claim code</button>
+    <span id="code-out" class="row"></span>
+  </div>
+  <div class="muted" style="margin-top:6px">
+    On the router: <code>logos-agent enroll --server &lt;this host&gt; --code &lt;code&gt;</code>. Codes are single-use and expire in 1 hour.
+  </div>
+
+  <h2>Nodes</h2>
+  <table>
+    <thead><tr><th>Name</th><th>Status</th><th>Host</th><th>Agent</th><th>OS / arch</th><th>Load</th><th>Mem</th><th>Last seen</th><th></th></tr></thead>
+    <tbody id="nodes"></tbody>
+  </table>
+  <div class="muted" id="nodes-empty" hidden>No nodes yet — create a claim code and enroll your first router.</div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const api = async (path, opts = {}) => {
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (res.status === 401) { show(false); throw new Error('unauthorized'); }
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body;
+};
+
+function show(loggedIn) {
+  $('login').hidden = loggedIn;
+  $('app').hidden = !loggedIn;
+  $('whoami').hidden = !loggedIn;
+}
+
+function fmtAgo(iso) {
+  if (!iso) return '—';
+  const s = Math.round((Date.now() - new Date(iso)) / 1000);
+  if (s < 5) return 'now';
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
+}
+
+function fmtMem(m) {
+  if (!m || !m.mem_total_kb) return '—';
+  const used = m.mem_total_kb - m.mem_available_kb;
+  return Math.round(100 * used / m.mem_total_kb) + '%';
+}
+
+async function refreshNodes() {
+  if ($('app').hidden) return;
+  const nodes = await api('/api/v1/nodes').catch(() => null);
+  if (!nodes) return;
+  $('nodes-empty').hidden = nodes.length > 0;
+  $('nodes').replaceChildren(...nodes.map(n => {
+    const tr = document.createElement('tr');
+    const m = n.metrics || {};
+    tr.append(...[
+      n.name,
+      { html: `<span class="status-${n.status}">${n.status}</span>` },
+      n.hostname || '—',
+      n.agent_version || '—',
+      (n.os_version || '—') + ' / ' + (n.arch || '—'),
+      m.load1 != null ? m.load1.toFixed(2) : '—',
+      fmtMem(m),
+      fmtAgo(n.last_seen_at),
+    ].map(v => {
+      const td = document.createElement('td');
+      if (v && v.html !== undefined) td.innerHTML = v.html; else td.textContent = v;
+      return td;
+    }));
+    const act = document.createElement('td');
+    if (n.status !== 'left') {
+      const b = document.createElement('button');
+      b.className = 'danger'; b.textContent = 'Remove';
+      b.onclick = async () => {
+        if (!confirm(`Remove "${n.name}" from management? The agent will unenroll itself.`)) return;
+        await api(`/api/v1/nodes/${n.id}/remove`, { method: 'POST' }).catch(e => alert(e.message));
+        refreshNodes();
+      };
+      act.append(b);
+    } else {
+      const b = document.createElement('button');
+      b.className = 'danger'; b.textContent = 'Delete record';
+      b.onclick = async () => {
+        if (!confirm(`Delete all server-side data for "${n.name}"?`)) return;
+        await api(`/api/v1/nodes/${n.id}`, { method: 'DELETE' }).catch(e => alert(e.message));
+        refreshNodes();
+      };
+      act.append(b);
+    }
+    tr.append(act);
+    return tr;
+  }));
+}
+
+$('login').onsubmit = async (e) => {
+  e.preventDefault();
+  $('login-error').textContent = '';
+  try {
+    const me = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
+    $('me-email').textContent = me.email;
+    show(true);
+    refreshNodes();
+  } catch (err) { $('login-error').textContent = err.message; }
+};
+
+$('logout').onclick = async () => { await api('/api/v1/auth/logout', { method: 'POST' }).catch(() => {}); show(false); };
+
+$('new-code').onclick = async () => {
+  const c = await api('/api/v1/claim-codes', { method: 'POST', body: JSON.stringify({}) }).catch(e => { alert(e.message); return null; });
+  if (!c) return;
+  $('code-out').innerHTML = '';
+  const code = document.createElement('code'); code.className = 'claim'; code.textContent = c.code;
+  const note = document.createElement('span'); note.className = 'muted'; note.textContent = 'shown once — copy it now';
+  $('code-out').append(code, note);
+};
+
+(async () => {
+  try {
+    const me = await api('/api/v1/me');
+    $('me-email').textContent = me.email;
+    show(true);
+    refreshNodes();
+  } catch { show(false); }
+  setInterval(refreshNodes, 5000);
+})();
+</script>
