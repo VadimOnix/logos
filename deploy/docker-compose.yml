@@ -32,6 +32,7 @@ services:
       # Node-offline alerts (F11); watcher is off until a sink is set.
       LOGOS_ALERT_WEBHOOK_URL: ${LOGOS_ALERT_WEBHOOK_URL:-}
       LOGOS_ALERT_OFFLINE_AFTER: ${LOGOS_ALERT_OFFLINE_AFTER:-}
+      LOGOS_ALERT_DISK_PCT: ${LOGOS_ALERT_DISK_PCT:-}
       LOGOS_SMTP_ADDR: ${LOGOS_SMTP_ADDR:-}
       LOGOS_SMTP_FROM: ${LOGOS_SMTP_FROM:-}
       LOGOS_SMTP_TO: ${LOGOS_SMTP_TO:-}

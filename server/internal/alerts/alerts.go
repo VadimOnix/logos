@@ -87,17 +87,30 @@ func (m *SMTPNotifier) Notify(_ context.Context, subject, text string) error {
 	return smtp.SendMail(m.Addr, auth, m.From, m.To, []byte(msg))
 }
 
+// Alert kinds. Each maps to its own persisted mark on the node row.
+const (
+	kindOffline = "offline"
+	kindDisk    = "disk"
+)
+
+// diskClearMargin is the hysteresis band (in percentage points) below the
+// disk threshold that a node must fall to before the low-flash alert clears,
+// so usage hovering around the threshold does not flap.
+const diskClearMargin = 5
+
 // event is one alert-worthy transition found in a scan.
 type event struct {
 	NodeID  string
-	Offline bool // false = recovery
+	Kind    string // kindOffline | kindDisk
+	Raise   bool   // true = problem raised, false = recovery
 	Subject string
 	Text    string
 }
 
 // decide computes the transitions for one scan. Pure — all state comes in
-// via the node rows and the online set.
-func decide(nodes []*store.Node, online map[string]bool, offlineAfter time.Duration, now time.Time) []event {
+// via the node rows, the online set, and the thresholds. A diskPct of 0
+// disables low-flash evaluation.
+func decide(nodes []*store.Node, online map[string]bool, offlineAfter time.Duration, diskPct float64, now time.Time) []event {
 	var out []event
 	for _, n := range nodes {
 		if n.Status != store.NodeStatusEnrolled {
@@ -109,11 +122,12 @@ func decide(nodes []*store.Node, online map[string]bool, offlineAfter time.Durat
 			// Never-seen nodes (enrolled but the agent has not connected
 			// yet) are not "offline" — there is nothing to lose contact with.
 			if n.LastSeenAt == nil || now.Sub(*n.LastSeenAt) < offlineAfter {
-				continue
+				break
 			}
 			out = append(out, event{
 				NodeID:  n.ID,
-				Offline: true,
+				Kind:    kindOffline,
+				Raise:   true,
 				Subject: fmt.Sprintf("[logos] node %s is offline", n.Name),
 				Text: fmt.Sprintf("Node %q (%s, %s) has not been seen since %s (threshold %s).",
 					n.Name, n.Hostname, n.ID, n.LastSeenAt.UTC().Format(time.RFC3339), offlineAfter),
@@ -121,11 +135,41 @@ func decide(nodes []*store.Node, online map[string]bool, offlineAfter time.Durat
 		case isOnline && n.AlertedOfflineAt != nil:
 			out = append(out, event{
 				NodeID:  n.ID,
-				Offline: false,
+				Kind:    kindOffline,
+				Raise:   false,
 				Subject: fmt.Sprintf("[logos] node %s is back online", n.Name),
 				Text: fmt.Sprintf("Node %q (%s, %s) reconnected after being offline since %s.",
 					n.Name, n.Hostname, n.ID, n.AlertedOfflineAt.UTC().Format(time.RFC3339)),
 			})
+		}
+
+		// Low-flash: evaluate only for online nodes, whose last_metrics are
+		// fresh. Raise at/above the threshold; clear once usage drops a
+		// hysteresis band below it.
+		if diskPct > 0 && isOnline {
+			if pct, ok := store.RootFSUsedPct(n.LastMetrics); ok {
+				alerted := n.AlertedDiskFullAt != nil
+				switch {
+				case !alerted && pct >= diskPct:
+					out = append(out, event{
+						NodeID:  n.ID,
+						Kind:    kindDisk,
+						Raise:   true,
+						Subject: fmt.Sprintf("[logos] node %s low on flash (%.0f%%)", n.Name, pct),
+						Text: fmt.Sprintf("Node %q (%s, %s) root filesystem is %.1f%% full (threshold %.0f%%).",
+							n.Name, n.Hostname, n.ID, pct, diskPct),
+					})
+				case alerted && pct < diskPct-diskClearMargin:
+					out = append(out, event{
+						NodeID:  n.ID,
+						Kind:    kindDisk,
+						Raise:   false,
+						Subject: fmt.Sprintf("[logos] node %s flash usage back to normal (%.0f%%)", n.Name, pct),
+						Text: fmt.Sprintf("Node %q (%s, %s) root filesystem fell to %.1f%% (below %.0f%%).",
+							n.Name, n.Hostname, n.ID, pct, diskPct-diskClearMargin),
+					})
+				}
+			}
 		}
 	}
 	return out
@@ -137,6 +181,7 @@ type Watcher struct {
 	IsOnline     func(nodeID string) bool // hub liveness
 	Notifiers    []Notifier
 	OfflineAfter time.Duration
+	DiskPct      float64 // low-flash threshold in percent; 0 disables
 	Interval     time.Duration
 	Log          *slog.Logger
 
@@ -151,8 +196,8 @@ func (w *Watcher) Run(ctx context.Context) {
 	if w.now == nil {
 		w.now = time.Now
 	}
-	w.Log.Info("offline alerting enabled",
-		"threshold", w.OfflineAfter, "sinks", w.sinkNames())
+	w.Log.Info("alerting enabled",
+		"offline_after", w.OfflineAfter, "disk_pct", w.DiskPct, "sinks", w.sinkNames())
 	t := time.NewTicker(w.Interval)
 	defer t.Stop()
 	for {
@@ -185,11 +230,18 @@ func (w *Watcher) scan(ctx context.Context) {
 	for _, n := range nodes {
 		online[n.ID] = w.IsOnline(n.ID)
 	}
-	for _, ev := range decide(nodes, online, w.OfflineAfter, w.now()) {
+	for _, ev := range decide(nodes, online, w.OfflineAfter, w.DiskPct, w.now()) {
 		// Flip the mark first: a duplicate alert is worse than a missed one
 		// (the next transition re-alerts anyway).
-		if err := w.Store.SetNodeOfflineAlerted(ctx, ev.NodeID, ev.Offline); err != nil {
-			w.Log.Error("alert state", "node", ev.NodeID, "err", err)
+		var err error
+		switch ev.Kind {
+		case kindOffline:
+			err = w.Store.SetNodeOfflineAlerted(ctx, ev.NodeID, ev.Raise)
+		case kindDisk:
+			err = w.Store.SetNodeDiskFullAlerted(ctx, ev.NodeID, ev.Raise)
+		}
+		if err != nil {
+			w.Log.Error("alert state", "node", ev.NodeID, "kind", ev.Kind, "err", err)
 			continue
 		}
 		w.Log.Warn("node alert", "subject", ev.Subject)

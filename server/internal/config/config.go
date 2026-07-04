@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -39,6 +40,7 @@ type Config struct {
 	// and/or SMTP settings are present.
 	AlertWebhookURL   string        // LOGOS_ALERT_WEBHOOK_URL
 	AlertOfflineAfter time.Duration // LOGOS_ALERT_OFFLINE_AFTER (default 3m)
+	AlertDiskPct      float64       // LOGOS_ALERT_DISK_PCT (default 90; 0 disables)
 	SMTPAddr          string        // LOGOS_SMTP_ADDR (host:port)
 	SMTPFrom          string        // LOGOS_SMTP_FROM
 	SMTPTo            []string      // LOGOS_SMTP_TO (comma-separated)
@@ -92,6 +94,14 @@ func FromEnv() (*Config, error) {
 			return nil, fmt.Errorf("LOGOS_ALERT_OFFLINE_AFTER must be a duration >= 30s (e.g. 3m)")
 		}
 		cfg.AlertOfflineAfter = d
+	}
+	cfg.AlertDiskPct = 90
+	if v := os.Getenv("LOGOS_ALERT_DISK_PCT"); v != "" {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil || p < 0 || p >= 100 {
+			return nil, fmt.Errorf("LOGOS_ALERT_DISK_PCT must be a number in [0,100) (e.g. 90; 0 disables)")
+		}
+		cfg.AlertDiskPct = p
 	}
 	return cfg, nil
 }

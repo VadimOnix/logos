@@ -97,11 +97,14 @@ Resolution (both shipped):
   Endpoints come from the channel's source address with persistent keepalive
   for NAT. **Open (next slice):** relay fallback for peers that cannot reach
   each other directly, richer endpoint discovery (STUN/ICE-style).
-- ✅ F11: node-offline alerts — a watcher compares node liveness (live
-  channel wins over a stale heartbeat) against a threshold
-  (`LOGOS_ALERT_OFFLINE_AFTER`, default 3m) and notifies a JSON webhook
-  and/or SMTP recipients on offline **and recovery**; alert state persists in
-  the registry, so restarts neither repeat nor lose alerts.
+- ✅ F11: node-offline **and low-flash** alerts — a watcher compares node
+  liveness (live channel wins over a stale heartbeat) against a threshold
+  (`LOGOS_ALERT_OFFLINE_AFTER`, default 3m) and each online node's
+  root-filesystem usage against `LOGOS_ALERT_DISK_PCT` (default 90%, PRD
+  §4.3 "flash > 90%"; hysteresis on the clear side avoids flapping), then
+  notifies a JSON webhook and/or SMTP recipients on the problem **and its
+  recovery**. Both alert states persist per-node in the registry, so
+  restarts neither repeat nor lose alerts.
 - ✅ F6 (history): the server derives a compact sample (load, memory %,
   rootfs %, aggregate rx/tx, client count) from each heartbeat into
   `node_metrics_history`, kept for 24h by the janitor and served at

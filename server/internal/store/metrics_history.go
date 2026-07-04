@@ -33,6 +33,22 @@ type heartbeatMetrics struct {
 	DHCPClients []json.RawMessage `json:"dhcp_clients"`
 }
 
+// RootFSUsedPct extracts the root-filesystem usage percentage from a raw
+// heartbeat payload, reusing the same parsing as the metric sampler. Returns
+// ok=false when the payload is empty, unparseable, or reports no rootfs size
+// (so callers can distinguish "0% used" from "unknown"). Used by the
+// low-flash alert (F11).
+func RootFSUsedPct(rawMetrics []byte) (pct float64, ok bool) {
+	if len(rawMetrics) == 0 {
+		return 0, false
+	}
+	var hm heartbeatMetrics
+	if err := json.Unmarshal(rawMetrics, &hm); err != nil || hm.RootFSTotalKB <= 0 {
+		return 0, false
+	}
+	return 100 * (hm.RootFSTotalKB - hm.RootFSFreeKB) / hm.RootFSTotalKB, true
+}
+
 // InsertMetricSample derives a history row from a raw heartbeat payload and
 // stores it. A nil/empty payload is ignored (heartbeats may omit metrics).
 func (s *Store) InsertMetricSample(ctx context.Context, nodeID string, rawMetrics []byte) error {
