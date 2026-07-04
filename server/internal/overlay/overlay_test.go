@@ -63,3 +63,34 @@ func TestBuildSync(t *testing.T) {
 		t.Errorf("allowed ips: %v", p.AllowedIPs)
 	}
 }
+
+func TestFindOverlap(t *testing.T) {
+	existing := []*store.Overlay{
+		{ID: 1, Name: "mesh", CIDR: "100.90.0.0/24"},
+		{ID: 2, Name: "lab", CIDR: "10.8.0.0/16"},
+		{ID: 3, Name: "broken", CIDR: "not-a-cidr"}, // skipped, must not panic
+	}
+	for _, tc := range []struct {
+		cidr string
+		want string // clashing overlay name, "" = no overlap
+	}{
+		{"100.90.0.0/24", "mesh"},   // identical
+		{"100.90.0.128/25", "mesh"}, // subset
+		{"100.90.0.0/16", "mesh"},   // superset
+		{"10.8.42.0/24", "lab"},     // inside the /16
+		{"100.91.0.0/24", ""},       // disjoint
+		{"192.168.1.0/24", ""},      // disjoint
+	} {
+		p := netip.MustParsePrefix(tc.cidr)
+		got := FindOverlap(p, existing)
+		switch {
+		case tc.want == "" && got != nil:
+			t.Errorf("%s: unexpected overlap with %q", tc.cidr, got.Name)
+		case tc.want != "" && (got == nil || got.Name != tc.want):
+			t.Errorf("%s: got %v, want %q", tc.cidr, got, tc.want)
+		}
+	}
+	if FindOverlap(netip.MustParsePrefix("100.90.0.0/24"), nil) != nil {
+		t.Error("overlap reported against no overlays")
+	}
+}
