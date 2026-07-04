@@ -50,7 +50,7 @@ func (s *Server) handleListOverlays(w http.ResponseWriter, r *http.Request, _ *s
 }
 
 // POST /api/v1/overlays {name, cidr}
-func (s *Server) handleCreateOverlay(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) handleCreateOverlay(w http.ResponseWriter, r *http.Request, u *store.User) {
 	var req struct {
 		Name string `json:"name"`
 		CIDR string `json:"cidr"`
@@ -87,6 +87,7 @@ func (s *Server) handleCreateOverlay(w http.ResponseWriter, r *http.Request, _ *
 		s.internalError(w, err)
 		return
 	}
+	s.audit(r.Context(), u, "overlay.create", o.Name, o.CIDR)
 	s.log.Info("overlay created", "name", o.Name, "cidr", o.CIDR)
 	writeJSON(w, http.StatusCreated, &overlayJSON{Overlay: o, Members: []*store.OverlayMember{}})
 }
@@ -111,7 +112,7 @@ func (s *Server) overlayFromPath(w http.ResponseWriter, r *http.Request) *store.
 
 // DELETE /api/v1/overlays/{id} — tear down on online members (best-effort;
 // offline ones prune at next reconnect), then drop the record.
-func (s *Server) handleDeleteOverlay(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) handleDeleteOverlay(w http.ResponseWriter, r *http.Request, u *store.User) {
 	o := s.overlayFromPath(w, r)
 	if o == nil {
 		return
@@ -134,12 +135,13 @@ func (s *Server) handleDeleteOverlay(w http.ResponseWriter, r *http.Request, _ *
 			}
 		}
 	}()
+	s.audit(r.Context(), u, "overlay.delete", o.Name, o.CIDR)
 	s.log.Info("overlay deleted", "name", o.Name)
 	writeJSON(w, http.StatusOK, map[string]string{"deleted": o.Name})
 }
 
 // POST /api/v1/overlays/{id}/members {node_id, subnets?}
-func (s *Server) handleAddOverlayMember(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) handleAddOverlayMember(w http.ResponseWriter, r *http.Request, u *store.User) {
 	o := s.overlayFromPath(w, r)
 	if o == nil {
 		return
@@ -207,12 +209,13 @@ func (s *Server) handleAddOverlayMember(w http.ResponseWriter, r *http.Request, 
 		defer cancel()
 		s.syncOverlay(ctx, o.ID)
 	}()
+	s.audit(r.Context(), u, "overlay.member_add", o.Name, n.ID)
 	s.log.Info("overlay member added", "overlay", o.Name, "node", n.Name, "ip", m.OverlayIP)
 	writeJSON(w, http.StatusCreated, m)
 }
 
 // DELETE /api/v1/overlays/{id}/members/{node_id}
-func (s *Server) handleRemoveOverlayMember(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) handleRemoveOverlayMember(w http.ResponseWriter, r *http.Request, u *store.User) {
 	o := s.overlayFromPath(w, r)
 	if o == nil {
 		return
@@ -233,6 +236,7 @@ func (s *Server) handleRemoveOverlayMember(w http.ResponseWriter, r *http.Reques
 		}
 		s.syncOverlay(ctx, o.ID)
 	}()
+	s.audit(r.Context(), u, "overlay.member_remove", o.Name, nodeID)
 	s.log.Info("overlay member removed", "overlay", o.Name, "node", nodeID)
 	writeJSON(w, http.StatusOK, map[string]string{"removed": nodeID})
 }

@@ -38,6 +38,7 @@ func (s *Server) handleCreateClaimCode(w http.ResponseWriter, r *http.Request, u
 		s.internalError(w, err)
 		return
 	}
+	s.audit(r.Context(), u, "claimcode.create", strconv.FormatInt(c.ID, 10), req.Note)
 	// The plaintext code is returned exactly once; only its hash is stored.
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"id":         c.ID,
@@ -56,7 +57,7 @@ func (s *Server) handleListClaimCodes(w http.ResponseWriter, r *http.Request, _ 
 	writeJSON(w, http.StatusOK, codes)
 }
 
-func (s *Server) handleDeleteClaimCode(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) handleDeleteClaimCode(w http.ResponseWriter, r *http.Request, u *store.User) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		httpError(w, http.StatusBadRequest, "invalid claim code id")
@@ -68,6 +69,7 @@ func (s *Server) handleDeleteClaimCode(w http.ResponseWriter, r *http.Request, _
 	case err != nil:
 		s.internalError(w, err)
 	default:
+		s.audit(r.Context(), u, "claimcode.delete", r.PathValue("id"), "")
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 	}
 }

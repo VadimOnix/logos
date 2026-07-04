@@ -69,7 +69,7 @@ func (s *Server) handleNodePackages(w http.ResponseWriter, r *http.Request, _ *s
 }
 
 // POST /api/v1/nodes/{id}/packages — install/remove/update (F5).
-func (s *Server) handleNodePackageAction(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) handleNodePackageAction(w http.ResponseWriter, r *http.Request, u *store.User) {
 	var req struct {
 		Action string `json:"action"`
 		Name   string `json:"name"`
@@ -95,6 +95,7 @@ func (s *Server) handleNodePackageAction(w http.ResponseWriter, r *http.Request,
 	}
 	params := map[string]string{"name": strings.TrimSpace(req.Name)}
 	if res := s.callNode(w, r, rpcMutateTimeout, method, params); res != nil {
+		s.audit(r.Context(), u, "package."+req.Action, r.PathValue("id"), strings.TrimSpace(req.Name))
 		s.log.Info("package action", "node", r.PathValue("id"), "action", req.Action, "pkg", req.Name)
 		writeRawJSON(w, res)
 	}

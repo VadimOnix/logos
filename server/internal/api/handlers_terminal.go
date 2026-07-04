@@ -90,6 +90,7 @@ func (s *Server) handleTerminalWS(w http.ResponseWriter, r *http.Request, u *sto
 		s.internalError(w, err)
 		return
 	}
+	s.audit(r.Context(), u, "terminal.open", node.ID, "")
 	closeReason := "closed"
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

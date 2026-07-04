@@ -76,6 +76,8 @@ func (s *Server) handleApplyConfig(w http.ResponseWriter, r *http.Request, u *st
 		"changes":            req.Changes,
 		"revert_timeout_sec": revertSec,
 	}
+	s.audit(r.Context(), u, "config.apply", r.PathValue("id"),
+		fmt.Sprintf("change %d (%d ops)", change.ID, len(req.Changes)))
 	s.runConfigChange(w, r, change, params, "uci.apply", revertSec)
 }
 
@@ -118,6 +120,8 @@ func (s *Server) handleRollbackConfig(w http.ResponseWriter, r *http.Request, u 
 		"snapshots":          snapshots,
 		"revert_timeout_sec": defaultRevertTimeoutSec,
 	}
+	s.audit(r.Context(), u, "config.rollback", nodeID,
+		fmt.Sprintf("change %d rolls back change %d", change.ID, prev.ID))
 	s.runConfigChange(w, r, change, params, "uci.restore", defaultRevertTimeoutSec)
 }
 

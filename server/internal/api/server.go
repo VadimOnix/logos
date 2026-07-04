@@ -89,6 +89,9 @@ func (s *Server) Handler() http.Handler {
 	// Fleet summary
 	mux.Handle("GET /api/v1/stats", s.requireUser(s.handleStats))
 
+	// Audit log (v1.0 basic audit)
+	mux.Handle("GET /api/v1/audit", s.requireUser(s.handleListAudit))
+
 	// Nodes
 	mux.Handle("GET /api/v1/nodes", s.requireUser(s.handleListNodes))
 	mux.Handle("GET /api/v1/nodes/{id}", s.requireUser(s.handleGetNode))
@@ -243,6 +246,10 @@ func (s *Server) internalError(w http.ResponseWriter, err error) {
 // "short retention" per the roadmap).
 const MetricRetention = 24 * time.Hour
 
+// AuditRetention is how long audit entries are kept in CE (basic audit;
+// long-term/forensic retention is an EE concern per PRD §5.3).
+const AuditRetention = 90 * 24 * time.Hour
+
 // StartSessionJanitor purges expired sessions and old metric samples
 // periodically.
 func (s *Server) StartSessionJanitor(ctx context.Context) {
@@ -259,6 +266,9 @@ func (s *Server) StartSessionJanitor(ctx context.Context) {
 				}
 				if _, err := s.store.PruneMetricHistory(ctx, time.Now().Add(-MetricRetention)); err != nil && ctx.Err() == nil {
 					s.log.Warn("metric history janitor", "err", err)
+				}
+				if _, err := s.store.PruneAudit(ctx, time.Now().Add(-AuditRetention)); err != nil && ctx.Err() == nil {
+					s.log.Warn("audit janitor", "err", err)
 				}
 			}
 		}
