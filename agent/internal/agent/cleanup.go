@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,9 +24,10 @@ import (
 // preAdoptionSnapshot mirrors adopt.Snapshot (kept as a separate type so the
 // agent binary does not link the ssh-bearing adopt package).
 type preAdoptionSnapshot struct {
-	PkgManager string   `json:"pkg_manager"`
-	Packages   []string `json:"packages"`
-	UCIExport  string   `json:"uci_export"`
+	PkgManager      string            `json:"pkg_manager"`
+	Packages        []string          `json:"packages"`
+	UCIExport       string            `json:"uci_export"`
+	ConfigChecksums map[string]string `json:"config_checksums,omitempty"`
 }
 
 // snapshotFile lives next to the agent state (written by logos-adopt).
@@ -71,6 +73,14 @@ func CleanupToSnapshot(ctx context.Context, statePath string, yes bool, in io.Re
 		fmt.Fprintf(out, "  - remove %d package(s) added since adoption: %s\n", len(toRemove), strings.Join(toRemove, ", "))
 	}
 	fmt.Fprintln(out, "  - revert UCI configuration to the pre-adoption snapshot")
+
+	// File-level conflict detection: warn about /etc/config files that
+	// diverged since adoption, so the operator knows the revert will
+	// overwrite changes made after the device was adopted.
+	if changed := changedConfigFiles(snap.ConfigChecksums); len(changed) > 0 {
+		fmt.Fprintf(out, "  ! %d config file(s) changed since adoption and will be overwritten: %s\n",
+			len(changed), strings.Join(changed, ", "))
+	}
 	if !yes {
 		fmt.Fprint(out, "proceed? [y/N]: ")
 		line, _ := bufio.NewReader(in).ReadString('\n')
@@ -123,6 +133,28 @@ func CleanupToSnapshot(ctx context.Context, statePath string, yes bool, in io.Re
 		return fmt.Errorf("cleanup finished with skipped items:\n  %s", strings.Join(problems, "\n  "))
 	}
 	return nil
+}
+
+// changedConfigFiles reports which snapshotted /etc/config files differ from
+// their pre-adoption checksum now (sorted). Files that vanished are reported
+// too; files unreadable now are skipped (nothing to overwrite).
+func changedConfigFiles(baseline map[string]string) []string {
+	var changed []string
+	for path, want := range baseline {
+		data, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			changed = append(changed, path+" (removed)")
+			continue
+		}
+		if err != nil {
+			continue
+		}
+		if fmt.Sprintf("%x", sha256.Sum256(data)) != want {
+			changed = append(changed, path)
+		}
+	}
+	slices.Sort(changed)
+	return changed
 }
 
 // diffPackages returns names in current that are absent from baseline.

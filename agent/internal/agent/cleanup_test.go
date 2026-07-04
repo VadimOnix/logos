@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -92,5 +94,43 @@ func TestCleanupWithoutSnapshot(t *testing.T) {
 	err := CleanupToSnapshot(context.Background(), statePath, true, strings.NewReader(""), &strings.Builder{})
 	if err == nil || !strings.Contains(err.Error(), "no pre-adoption snapshot") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func sha256hex(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return fmt.Sprintf("%x", sum)
+}
+
+func TestChangedConfigFiles(t *testing.T) {
+	dir := t.TempDir()
+	same := filepath.Join(dir, "network")
+	os.WriteFile(same, []byte("config interface\n"), 0o644)
+	edited := filepath.Join(dir, "firewall")
+	os.WriteFile(edited, []byte("edited after adoption\n"), 0o644)
+
+	baseline := map[string]string{
+		same:                       sha256hex("config interface\n"),  // unchanged
+		edited:                     sha256hex("original firewall\n"), // differs now
+		filepath.Join(dir, "gone"): sha256hex("was here\n"),          // missing now
+	}
+	changed := changedConfigFiles(baseline)
+	if len(changed) != 2 {
+		t.Fatalf("want 2 changed, got %v", changed)
+	}
+	if !slices.Contains(changed, edited) {
+		t.Errorf("edited file not flagged: %v", changed)
+	}
+	foundGone := false
+	for _, c := range changed {
+		if strings.HasSuffix(c, "gone (removed)") {
+			foundGone = true
+		}
+	}
+	if !foundGone {
+		t.Errorf("removed file not flagged: %v", changed)
+	}
+	if changedConfigFiles(nil) != nil {
+		t.Error("nil baseline should yield no changes")
 	}
 }

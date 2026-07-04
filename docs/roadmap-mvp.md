@@ -49,7 +49,10 @@ enroll into and stay connected to. Everything later builds on this channel.
   **only after it passes its checks**, so a scan never burns codes on
   unreachable hosts. One failure never blocks the rest; the process exits
   non-zero if any router failed.
-- ⬜ File checksums in the snapshot (config-file-level conflict detection).
+- ✅ File checksums in the snapshot — the pre-adoption snapshot records the
+  sha256 of every `/etc/config` file, so `--cleanup` detects which config
+  files diverged since adoption and warns that the revert will overwrite
+  them (config-file-level conflict detection).
 - ✅ F2 (full): first-run local setup page — an unenrolled agent serves
   `http://<router>:8484` (any other path redirects there, so captive-portal
   probes land on it) with a claim-code form; enrollment closes the portal and
