@@ -129,10 +129,9 @@ func (c *agentConn) resolve(msg agentMsg) {
 	}
 }
 
-// handleAgentWS is the persistent management channel (PRD F1/F3): the agent
-// dials out, authenticates with its node token, and streams hello/heartbeat
-// messages; the server invokes RPCs (packages, config) over the same socket.
-// Node liveness in the panel derives from this connection.
+// handleAgentWS is the legacy token-authenticated management channel on the
+// main listener. New enrollments use the mTLS listener (handleAgentWSMTLS);
+// this path remains for nodes enrolled before certificates existed.
 func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	tok := bearerToken(r)
 	if tok == "" {
@@ -148,7 +147,13 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, err)
 		return
 	}
+	s.serveAgentWS(w, r, node)
+}
 
+// serveAgentWS runs the persistent management channel (PRD F1/F3): the agent
+// streams hello/heartbeat messages and the server invokes RPCs (packages,
+// config) over the same socket. Node liveness derives from this connection.
+func (s *Server) serveAgentWS(w http.ResponseWriter, r *http.Request, node *store.Node) {
 	ws, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return // Accept already wrote the HTTP error
