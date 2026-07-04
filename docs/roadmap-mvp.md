@@ -102,9 +102,11 @@ Resolution (both shipped):
   (`LOGOS_ALERT_OFFLINE_AFTER`, default 3m) and each online node's
   root-filesystem usage against `LOGOS_ALERT_DISK_PCT` (default 90%, PRD
   §4.3 "flash > 90%"; hysteresis on the clear side avoids flapping), then
-  notifies a JSON webhook and/or SMTP recipients on the problem **and its
-  recovery**. Both alert states persist per-node in the registry, so
-  restarts neither repeat nor lose alerts.
+  notifies a JSON webhook, a Telegram chat (`LOGOS_ALERT_TELEGRAM_TOKEN` +
+  `LOGOS_ALERT_TELEGRAM_CHAT`, an early slice of v1.0 "Telegram delivery"),
+  and/or SMTP recipients on the problem **and its recovery**. Both alert
+  states persist per-node in the registry, so restarts neither repeat nor
+  lose alerts.
 - ✅ F6 (history): the server derives a compact sample (load, memory %,
   rootfs %, aggregate rx/tx, client count) from each heartbeat into
   `node_metrics_history`, kept for 24h by the janitor and served at

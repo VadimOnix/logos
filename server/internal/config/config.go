@@ -36,16 +36,18 @@ type Config struct {
 	// (LOGOS_AGENT_BINARIES_DIR); empty disables the endpoint.
 	AgentBinariesDir string
 
-	// Node-offline alerting (F11). Alerts are enabled when a webhook URL
-	// and/or SMTP settings are present.
-	AlertWebhookURL   string        // LOGOS_ALERT_WEBHOOK_URL
-	AlertOfflineAfter time.Duration // LOGOS_ALERT_OFFLINE_AFTER (default 3m)
-	AlertDiskPct      float64       // LOGOS_ALERT_DISK_PCT (default 90; 0 disables)
-	SMTPAddr          string        // LOGOS_SMTP_ADDR (host:port)
-	SMTPFrom          string        // LOGOS_SMTP_FROM
-	SMTPTo            []string      // LOGOS_SMTP_TO (comma-separated)
-	SMTPUser          string        // LOGOS_SMTP_USER (optional)
-	SMTPPassword      string        // LOGOS_SMTP_PASSWORD (optional)
+	// Node-offline alerting (F11). Alerts are enabled when a webhook URL,
+	// Telegram bot, and/or SMTP settings are present.
+	AlertWebhookURL    string        // LOGOS_ALERT_WEBHOOK_URL
+	AlertOfflineAfter  time.Duration // LOGOS_ALERT_OFFLINE_AFTER (default 3m)
+	AlertDiskPct       float64       // LOGOS_ALERT_DISK_PCT (default 90; 0 disables)
+	AlertTelegramToken string        // LOGOS_ALERT_TELEGRAM_TOKEN (bot token)
+	AlertTelegramChat  string        // LOGOS_ALERT_TELEGRAM_CHAT (chat id or @channel)
+	SMTPAddr           string        // LOGOS_SMTP_ADDR (host:port)
+	SMTPFrom           string        // LOGOS_SMTP_FROM
+	SMTPTo             []string      // LOGOS_SMTP_TO (comma-separated)
+	SMTPUser           string        // LOGOS_SMTP_USER (optional)
+	SMTPPassword       string        // LOGOS_SMTP_PASSWORD (optional)
 }
 
 func FromEnv() (*Config, error) {
@@ -86,6 +88,11 @@ func FromEnv() (*Config, error) {
 	}
 	if cfg.SMTPAddr != "" && (cfg.SMTPFrom == "" || len(cfg.SMTPTo) == 0) {
 		return nil, fmt.Errorf("LOGOS_SMTP_ADDR is set but LOGOS_SMTP_FROM/LOGOS_SMTP_TO are missing")
+	}
+	cfg.AlertTelegramToken = os.Getenv("LOGOS_ALERT_TELEGRAM_TOKEN")
+	cfg.AlertTelegramChat = os.Getenv("LOGOS_ALERT_TELEGRAM_CHAT")
+	if (cfg.AlertTelegramToken == "") != (cfg.AlertTelegramChat == "") {
+		return nil, fmt.Errorf("LOGOS_ALERT_TELEGRAM_TOKEN and LOGOS_ALERT_TELEGRAM_CHAT must be set together")
 	}
 	cfg.AlertOfflineAfter = 3 * time.Minute
 	if v := os.Getenv("LOGOS_ALERT_OFFLINE_AFTER"); v != "" {
