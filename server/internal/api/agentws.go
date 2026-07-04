@@ -257,6 +257,11 @@ func (s *Server) serveAgentWS(w http.ResponseWriter, r *http.Request, node *stor
 			go s.reconcileNodeOverlays(node.ID)
 		case msgHeartbeat:
 			err = s.store.TouchNode(ctx, node.ID, msg.Metrics)
+			// Retain a history sample for charts (F6); best-effort, never
+			// fails the heartbeat.
+			if serr := s.store.InsertMetricSample(ctx, node.ID, msg.Metrics); serr != nil {
+				s.log.Warn("store metric sample", "node", node.ID, "err", serr)
+			}
 		case msgRPCResult:
 			conn.resolve(msg)
 		case msgTermData, msgTermClose:

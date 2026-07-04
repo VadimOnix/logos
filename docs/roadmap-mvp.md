@@ -58,7 +58,7 @@ enroll into and stay connected to. Everything later builds on this channel.
   until WAN is up, file removed after success) with the F2 portal running in
   parallel as fallback; without a preseed it boots straight into the portal.
 
-### M3 — Operate a small fleet (in progress)
+### M3 — Operate a small fleet (✅ feature-complete)
 
 - ✅ F7: overlay networks v1 — WireGuard full mesh with the control plane as
   coordinator: overlays with a CIDR each, IPAM (lowest free host address),
@@ -76,7 +76,11 @@ enroll into and stay connected to. Everything later builds on this channel.
   (`LOGOS_ALERT_OFFLINE_AFTER`, default 3m) and notifies a JSON webhook
   and/or SMTP recipients on offline **and recovery**; alert state persists in
   the registry, so restarts neither repeat nor lose alerts.
-- ⬜ F6: metric history (short retention).
+- ✅ F6 (history): the server derives a compact sample (load, memory %,
+  rootfs %, aggregate rx/tx, client count) from each heartbeat into
+  `node_metrics_history`, kept for 24h by the janitor and served at
+  `/nodes/{id}/metrics/history?since=…`. The panel renders dependency-free
+  inline-SVG sparklines (traffic shown as per-interval rates).
 - ✅ F10: remote terminal — an interactive shell multiplexed over the
   management channel (`term_open`/`term_data`/`term_close`). The agent runs
   the system shell in a pty (bounded to 2 concurrent sessions, 30-min idle
