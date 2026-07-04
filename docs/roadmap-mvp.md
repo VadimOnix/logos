@@ -36,7 +36,17 @@ enroll into and stay connected to. Everything later builds on this channel.
 - ✅ F6: wireless associations via `ubus call iwinfo` in the heartbeat.
 - ✅ CI job cross-building the agent for common OpenWrt targets (mips/mipsle/arm/arm64/x86_64) with a size report vs the ≤1 MB budget.
 
-**M1 exit note:** the agent binary size budget (≤1 MB) is still exceeded (~4–5 MB stripped Go); tracked in agent/openwrt/README.md — candidates: upx, TinyGo, or revising the PRD budget to ~2 MB compressed.
+**M1 exit note:** the agent binary size budget (≤1 MB) is still exceeded and
+the gap is structural. Measured for `mips_24kc` at the full MVP feature set:
+~9.8 MB raw stripped, ~3.4 MB gzip, ~2.3 MB xz/`upx --lzma`. The binary is
+dominated by the Go runtime (~1.7 MB) and mandatory stdlib crypto (TLS +
+FIPS-140, ~1 MB) + `net/http` (~0.6 MB); only ~0.1 MB is the agent's own
+code, so trimming cannot close the gap. The `agent-openwrt` CI job now
+reports raw / gzip / `upx --lzma` sizes on every PR. Remaining options are a
+product decision (see below), not more engineering: pack the shipped binary
+with `upx --lzma` (~1.3–2 MB on flash, one-time RAM decompress) or revise the
+PRD budget to the measured compressed reality. TinyGo is not viable
+(`net/http` + `crypto/tls` + `html/template` unsupported).
 
 ### M2 — Adoption & offboarding done right (in progress)
 

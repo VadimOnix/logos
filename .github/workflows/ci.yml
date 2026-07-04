@@ -37,6 +37,8 @@ jobs:
         with:
           go-version: "1.25"
           cache-dependency-path: agent/go.sum
+      - name: Install upx
+        run: sudo apt-get update && sudo apt-get install -y upx-ucl
       - name: Cross-build agent
         run: |
           set -e
@@ -54,14 +56,25 @@ jobs:
           build x86_64       GOARCH=amd64
       - name: Size report
         run: |
+          # Three columns matter for the flash budget: the raw stripped
+          # binary, gzip (what an ipk/apk stores), and upx --lzma (the real
+          # on-flash size if the binary is self-extracting). upx may not
+          # support every target ELF — those fall back to "n/a".
           {
             echo "### logos-agent binary sizes (PRD budget: ≤ 1 MB flash)"
             echo ""
-            echo "| target | size | gzipped |"
-            echo "|---|---|---|"
+            echo "| target | raw | gzip | upx --lzma |"
+            echo "|---|---|---|---|"
             for f in dist/logos-agent-*; do
+              raw=$(stat -c%s "$f")
               gz=$(gzip -c "$f" | wc -c)
-              printf "| %s | %s | %s |\n" "$(basename "$f")" \
-                "$(numfmt --to=iec "$(stat -c%s "$f")")" "$(numfmt --to=iec "$gz")"
+              cp "$f" "$f.upx"
+              if upx --best --lzma -q "$f.upx" >/dev/null 2>&1; then
+                up=$(numfmt --to=iec "$(stat -c%s "$f.upx")")
+              else
+                up="n/a"
+              fi
+              printf "| %s | %s | %s | %s |\n" "$(basename "$f")" \
+                "$(numfmt --to=iec "$raw")" "$(numfmt --to=iec "$gz")" "$up"
             done
           } | tee -a "$GITHUB_STEP_SUMMARY"
