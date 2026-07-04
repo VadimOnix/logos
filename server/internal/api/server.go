@@ -69,6 +69,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/nodes/{id}/packages", s.requireUser(s.handleNodePackages))
 	mux.Handle("POST /api/v1/nodes/{id}/packages", s.requireUser(s.handleNodePackageAction))
 	mux.Handle("GET /api/v1/nodes/{id}/config", s.requireUser(s.handleNodeConfig))
+	mux.Handle("GET /api/v1/nodes/{id}/config/changes", s.requireUser(s.handleListConfigChanges))
+	mux.Handle("POST /api/v1/nodes/{id}/config/changes", s.requireUser(s.handleApplyConfig))
+	mux.Handle("POST /api/v1/nodes/{id}/config/changes/{change_id}/rollback", s.requireUser(s.handleRollbackConfig))
 
 	// Agent-facing
 	mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)

@@ -24,6 +24,9 @@ var rpcHandlers = map[string]rpcHandler{
 	"packages.remove":  handlePackagesRemove,
 	"packages.update":  handlePackagesUpdate,
 	"uci.export":       handleUCIExport,
+	"uci.apply":        handleUCIApply,
+	"uci.confirm":      handleUCIConfirm,
+	"uci.restore":      handleUCIRestore,
 }
 
 // rpcConcurrency bounds parallel RPC execution so a burst of requests cannot

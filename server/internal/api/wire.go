@@ -22,6 +22,10 @@ type agentMsg struct {
 	AgentVersion string `json:"agent_version,omitempty"`
 	OSVersion    string `json:"os_version,omitempty"`
 	Arch         string `json:"arch,omitempty"`
+	// PendingApplyID: agent reports an unconfirmed config change on
+	// reconnect; the reconnect itself proves connectivity, so the server
+	// confirms the change (see handlers_config.go).
+	PendingApplyID string `json:"pending_apply_id,omitempty"`
 
 	// heartbeat
 	Metrics json.RawMessage `json:"metrics,omitempty"`

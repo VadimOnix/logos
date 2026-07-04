@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -38,6 +39,13 @@ func Run(ctx context.Context, statePath string, log *slog.Logger) error {
 		return fmt.Errorf("not enrolled: %w (run `logos-agent enroll` first)", err)
 	}
 	log.Info("logos-agent starting", "version", Version, "server", st.ServerURL, "node", st.NodeID)
+
+	// A leftover unconfirmed config change means the previous apply never got
+	// confirmed (crash/reboot/lost channel) — restore the snapshot first.
+	SetStateDir(filepath.Dir(statePath), log)
+	if err := RevertPendingOnStart(); err != nil {
+		log.Error("revert of unconfirmed config change failed", "err", err)
+	}
 
 	backoff := backoffMin
 	for {
@@ -109,11 +117,12 @@ func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
 
 	hostname, _ := os.Hostname()
 	if err := sess.send(connCtx, wireMsg{
-		Type:         msgHello,
-		Hostname:     hostname,
-		AgentVersion: Version,
-		OSVersion:    OSVersion(),
-		Arch:         runtime.GOARCH,
+		Type:           msgHello,
+		Hostname:       hostname,
+		AgentVersion:   Version,
+		OSVersion:      OSVersion(),
+		Arch:           runtime.GOARCH,
+		PendingApplyID: PendingApplyID(),
 	}); err != nil {
 		return err
 	}
