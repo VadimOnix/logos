@@ -31,8 +31,9 @@ enroll into and stay connected to. Everything later builds on this channel.
 - ✅ F6 (partial): interface traffic counters (/proc/net/dev) and DHCP client list (dnsmasq leases) in the heartbeat. `ubus` wireless associations still open.
 - ✅ F4 step 1: read-only `uci export` snapshot via RPC + REST. Write path (set/commit, versioned server-side, rollback with auto-revert watchdog) still open.
 - ✅ F1 (packaging skeleton): OpenWrt feed Makefile + procd init script. Size budget ≤ 1 MB is currently exceeded by Go binaries (~4–5 MB stripped) — mitigation tracked in agent/openwrt/README.md.
+- ✅ F4 write path: `uci set/delete/commit` through the channel — every push is a versioned `config_changes` row with pre-change snapshots; the agent arms an **auto-revert watchdog** (crash/reboot-safe via a persisted pending file) and the server confirms only over a live channel, so a change that breaks connectivity reverts itself; rollback endpoint restores stored snapshots through the same machinery.
 - ⬜ mTLS for the agent channel (per-node client certs issued at enrollment; token auth remains the bootstrap).
-- ⬜ F4 write path: UCI set/commit with server-side versioning and rollback.
+- ⬜ F6: wireless associations via `ubus`.
 - ⬜ CI job building the agent for OpenWrt targets + size report.
 
 ### M2 — Adoption & offboarding done right

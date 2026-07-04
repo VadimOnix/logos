@@ -19,6 +19,9 @@ type wireMsg struct {
 	AgentVersion string `json:"agent_version,omitempty"`
 	OSVersion    string `json:"os_version,omitempty"`
 	Arch         string `json:"arch,omitempty"`
+	// PendingApplyID reports an unconfirmed config change on reconnect so
+	// the server can confirm it (the reconnect proves connectivity).
+	PendingApplyID string `json:"pending_apply_id,omitempty"`
 
 	Metrics json.RawMessage `json:"metrics,omitempty"`
 

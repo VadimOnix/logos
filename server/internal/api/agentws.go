@@ -185,6 +185,11 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 				OSVersion:    msg.OSVersion,
 				Arch:         msg.Arch,
 			})
+			if msg.PendingApplyID != "" {
+				// The reconnect proves connectivity: confirm the change the
+				// agent is still holding a revert window for.
+				go s.reconcilePendingApply(node.ID, msg.PendingApplyID)
+			}
 		case msgHeartbeat:
 			err = s.store.TouchNode(ctx, node.ID, msg.Metrics)
 		case msgRPCResult:
