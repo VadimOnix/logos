@@ -77,6 +77,7 @@
       <button id="load-packages">Packages</button>
       <button id="load-config">UCI config</button>
       <button id="load-changes">Change history</button>
+      <button id="load-history">Metric history</button>
       <button id="open-terminal">Terminal</button>
       <input id="pkg-name" placeholder="package name" style="width:160px">
       <button id="pkg-install">Install</button>
@@ -94,6 +95,7 @@
         </div>
       </div>
     </details>
+    <div id="history" hidden style="margin-top:8px"></div>
     <pre id="detail-out" style="max-height:400px;overflow:auto;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:10px;white-space:pre-wrap"></pre>
     <div id="terminal" hidden style="margin-top:8px">
       <div class="row" style="justify-content:space-between">
@@ -210,6 +212,7 @@ function selectNode(n) {
   if (selected && n.id !== selected.id) closeTerminal();
   selected = n;
   $('detail').hidden = false;
+  $('history').hidden = true;
   $('detail-title').textContent = `Node: ${n.name} (${n.status})`;
   const m = n.metrics || {};
   let text = '';
@@ -432,6 +435,60 @@ $('ov-create').onclick = async () => {
     refreshOverlays();
   } catch (e) { alert(e.message); }
 };
+
+// Metric history (F6) — dependency-free inline-SVG sparklines.
+function sparkline(points, opts) {
+  const w = 260, h = 40, pad = 2;
+  const vals = points.map(p => p.v).filter(v => v != null);
+  if (vals.length < 2) return '<span class="muted">not enough samples yet</span>';
+  const min = opts.min != null ? opts.min : Math.min(...vals);
+  let max = opts.max != null ? opts.max : Math.max(...vals);
+  if (max === min) max = min + 1;
+  const n = points.length;
+  const x = i => pad + i * (w - 2 * pad) / (n - 1);
+  const y = v => h - pad - (v - min) / (max - min) * (h - 2 * pad);
+  let d = '', started = false;
+  points.forEach((p, i) => {
+    if (p.v == null) { started = false; return; }
+    d += (started ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(p.v).toFixed(1) + ' ';
+    started = true;
+  });
+  const last = vals[vals.length - 1];
+  return `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" style="vertical-align:middle">
+    <path d="${d}" fill="none" stroke="${opts.color}" stroke-width="1.5"/>
+  </svg> <span class="muted">${opts.fmt(last)}</span>`;
+}
+
+$('load-history').onclick = () => nodeAction('loading history', async () => {
+  const samples = await api(`/api/v1/nodes/${selected.id}/metrics/history?since=6h`);
+  const hist = $('history');
+  hist.hidden = false;
+  if (!samples.length) {
+    hist.innerHTML = '<span class="muted">No metric history yet — samples accumulate as the node sends heartbeats.</span>';
+    return '';
+  }
+  // Traffic: turn cumulative counters into per-interval rates (bytes/s).
+  const rate = (key) => samples.map((s, i) => {
+    if (i === 0 || s[key] == null || samples[i-1][key] == null) return { v: null };
+    const dt = (new Date(s.t) - new Date(samples[i-1].t)) / 1000;
+    const db = s[key] - samples[i-1][key];
+    return { v: dt > 0 && db >= 0 ? db / dt : null };
+  });
+  const pct = (v) => v == null ? '—' : v.toFixed(0) + '%';
+  const rows = [
+    ['CPU load (1m)', sparkline(samples.map(s => ({ v: s.load1 })), { color: '#6ca4f8', min: 0, fmt: v => v.toFixed(2) })],
+    ['Memory used', sparkline(samples.map(s => ({ v: s.mem_used_pct })), { color: '#3ccb7f', min: 0, max: 100, fmt: pct })],
+    ['Rootfs used', sparkline(samples.map(s => ({ v: s.rootfs_used_pct })), { color: '#f7b955', min: 0, max: 100, fmt: pct })],
+    ['Rx rate', sparkline(rate('rx_bytes'), { color: '#6ca4f8', min: 0, fmt: v => fmtBytes(v) + '/s' })],
+    ['Tx rate', sparkline(rate('tx_bytes'), { color: '#f97066', min: 0, fmt: v => fmtBytes(v) + '/s' })],
+    ['DHCP clients', sparkline(samples.map(s => ({ v: s.dhcp_clients })), { color: '#98a2b3', min: 0, fmt: v => String(Math.round(v)) })],
+  ];
+  hist.innerHTML =
+    `<div class="muted" style="margin-bottom:6px">Last 6h · ${samples.length} samples</div>` +
+    '<table>' + rows.map(([label, svg]) =>
+      `<tr><td style="width:110px">${label}</td><td>${svg}</td></tr>`).join('') + '</table>';
+  return '';
+});
 
 // Remote terminal (F10)
 let termSocket = null;

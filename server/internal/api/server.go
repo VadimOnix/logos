@@ -103,6 +103,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/nodes/{id}/terminal/log", s.requireUser(s.handleTerminalLog))
 	mux.Handle("GET /api/v1/nodes/{id}/terminal/ws", s.requireUser(s.handleTerminalWS))
 
+	// Metric history (F6)
+	mux.Handle("GET /api/v1/nodes/{id}/metrics/history", s.requireUser(s.handleMetricHistory))
+
 	// Agent-facing
 	mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	mux.HandleFunc("POST /api/v1/agent/leave", s.handleAgentLeave)
@@ -204,7 +207,12 @@ func (s *Server) internalError(w http.ResponseWriter, err error) {
 	httpError(w, http.StatusInternalServerError, "internal error")
 }
 
-// StartSessionJanitor purges expired sessions periodically.
+// MetricRetention is how long metric-history samples are kept (F6:
+// "short retention" per the roadmap).
+const MetricRetention = 24 * time.Hour
+
+// StartSessionJanitor purges expired sessions and old metric samples
+// periodically.
 func (s *Server) StartSessionJanitor(ctx context.Context) {
 	go func() {
 		t := time.NewTicker(time.Hour)
@@ -216,6 +224,9 @@ func (s *Server) StartSessionJanitor(ctx context.Context) {
 			case <-t.C:
 				if err := s.store.DeleteExpiredSessions(ctx); err != nil && ctx.Err() == nil {
 					s.log.Warn("session janitor", "err", err)
+				}
+				if _, err := s.store.PruneMetricHistory(ctx, time.Now().Add(-MetricRetention)); err != nil && ctx.Err() == nil {
+					s.log.Warn("metric history janitor", "err", err)
 				}
 			}
 		}
