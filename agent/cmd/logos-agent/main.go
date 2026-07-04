@@ -20,7 +20,7 @@ const usage = `logos-agent — Logos node agent
 Usage:
   logos-agent enroll --server <url> --code <claim-code> [--state <path>]
   logos-agent run    [--state <path>]
-  logos-agent leave  [--state <path>]
+  logos-agent leave  [--cleanup] [--yes] [--state <path>]
   logos-agent status [--state <path>]
   logos-agent version
 
@@ -56,8 +56,10 @@ func main() {
 	case "leave":
 		fs := flag.NewFlagSet("leave", flag.ExitOnError)
 		state := fs.String("state", agent.StatePath(), "state file path")
+		cleanup := fs.Bool("cleanup", false, "also restore the pre-adoption snapshot (remove packages added since adoption, revert UCI)")
+		yes := fs.Bool("yes", false, "skip the cleanup confirmation prompt")
 		fs.Parse(args)
-		err = agent.Leave(ctx, *state)
+		err = agent.Leave(ctx, *state, *cleanup, *yes)
 	case "status":
 		fs := flag.NewFlagSet("status", flag.ExitOnError)
 		state := fs.String("state", agent.StatePath(), "state file path")

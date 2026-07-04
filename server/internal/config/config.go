@@ -29,16 +29,21 @@ type Config struct {
 	// wss://logos.example.com:8443 (LOGOS_AGENT_ENDPOINT). Derived from
 	// AgentHosts + AgentListen when unset.
 	AgentEndpoint string
+	// AgentBinariesDir holds cross-compiled agent binaries named
+	// logos-agent-linux-<goarch> for the adoption tool to download
+	// (LOGOS_AGENT_BINARIES_DIR); empty disables the endpoint.
+	AgentBinariesDir string
 }
 
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		ListenAddr:    envOr("LOGOS_LISTEN", ":8080"),
-		DatabaseURL:   os.Getenv("LOGOS_DATABASE_URL"),
-		AdminEmail:    os.Getenv("LOGOS_ADMIN_EMAIL"),
-		AdminPassword: os.Getenv("LOGOS_ADMIN_PASSWORD"),
-		AgentListen:   envOr("LOGOS_AGENT_LISTEN", ":8443"),
-		AgentEndpoint: os.Getenv("LOGOS_AGENT_ENDPOINT"),
+		ListenAddr:       envOr("LOGOS_LISTEN", ":8080"),
+		DatabaseURL:      os.Getenv("LOGOS_DATABASE_URL"),
+		AdminEmail:       os.Getenv("LOGOS_ADMIN_EMAIL"),
+		AdminPassword:    os.Getenv("LOGOS_ADMIN_PASSWORD"),
+		AgentListen:      envOr("LOGOS_AGENT_LISTEN", ":8443"),
+		AgentEndpoint:    os.Getenv("LOGOS_AGENT_ENDPOINT"),
+		AgentBinariesDir: os.Getenv("LOGOS_AGENT_BINARIES_DIR"),
 	}
 	if cfg.DatabaseURL == "" {
 		return nil, fmt.Errorf("LOGOS_DATABASE_URL is required")

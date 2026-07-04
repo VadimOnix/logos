@@ -15,15 +15,25 @@ docker compose up -d
 ```
 
 Open http://localhost:8080, log in with the admin credentials from `.env`,
-click **New claim code**, then on the router (or any Linux box for now):
+click **New claim code**, then adopt an existing OpenWrt router in one
+command from your machine (admin credentials are used only for the local
+SSH session and never sent to the server):
 
 ```sh
-logos-agent enroll --server http://<control-plane-host>:8080 --code LG-XXXXX-XXXXX
-logos-agent run
+logos-adopt run --router 192.168.1.1 --server http://<control-plane-host>:8080 --code LG-XXXXX-XXXXX
 ```
 
-The node appears in the panel as *online* with live metrics. Leaving is just
-as easy — `logos-agent leave` works even if the control plane is unreachable.
+The tool checks compatibility, takes a **pre-adoption snapshot**, installs
+the agent, and enrolls the node — it appears in the panel as *online* with
+live metrics. Manual enrollment also works (`logos-agent enroll … && logos-agent run`).
+
+Leaving is just as easy and never requires the control plane to be
+reachable:
+
+```sh
+logos-adopt remove --router 192.168.1.1 --cleanup   # revert to the pre-adoption snapshot
+# or on the device itself: logos-agent leave [--cleanup]
+```
 
 ### Building from source
 
@@ -37,7 +47,7 @@ make test
 | Path | Contents |
 |---|---|
 | `server/` | Control plane: single Go binary + Postgres — device registry, claim-code enrollment, agent WebSocket channel, auth (sessions + API tokens), built-in admin panel |
-| `agent/` | `logos-agent` for OpenWrt/Linux nodes: enroll, persistent outbound management channel with heartbeats, clean leave |
+| `agent/` | `logos-agent` for OpenWrt/Linux nodes (enroll, persistent outbound management channel, clean leave) and `logos-adopt` (SSH adoption tool with pre-adoption snapshot and full-cleanup offboarding) |
 | `deploy/` | Dockerfile + docker-compose for self-hosting |
 | `docs/` | Product docs (see below) |
 

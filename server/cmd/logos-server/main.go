@@ -71,7 +71,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	srv := api.NewServer(st, hub.New(), log, authority, cfg.AgentEndpoint)
+	srv := api.NewServer(st, hub.New(), log, authority, cfg.AgentEndpoint, cfg.AgentBinariesDir)
 	srv.StartSessionJanitor(ctx)
 
 	httpSrv := &http.Server{
