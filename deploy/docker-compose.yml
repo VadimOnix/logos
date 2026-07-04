@@ -4,8 +4,9 @@
 #   cp .env.example .env   # then edit .env
 #   docker compose up -d
 #
-# The panel is at http://localhost:8080. Put a TLS-terminating reverse proxy
-# in front for anything beyond local evaluation.
+# The panel is at http://localhost:8080. For anything beyond local
+# evaluation, front it with a TLS reverse proxy — see docker-compose.prod.yml
+# for a ready-made Caddy overlay with automatic HTTPS.
 services:
   server:
     build:
@@ -13,7 +14,12 @@ services:
       dockerfile: deploy/Dockerfile
     restart: unless-stopped
     ports:
-      - "8080:8080" # panel/API (put a TLS reverse proxy in front)
+      # Panel/API on loopback only — front it with a TLS reverse proxy
+      # (see docker-compose.prod.yml, which reaches it over the internal
+      # network). Same-machine access still works at http://localhost:8080;
+      # to reach it directly from another host during evaluation, change
+      # this to "8080:8080".
+      - "127.0.0.1:8080:8080"
       - "8443:8443" # agent mTLS channel (terminates TLS itself — do NOT proxy-terminate)
     environment:
       LOGOS_DATABASE_URL: postgres://logos:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/logos

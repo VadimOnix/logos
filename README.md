@@ -44,6 +44,64 @@ logos-adopt remove --router 192.168.1.1 --cleanup   # revert to the pre-adoption
 # or on the device itself: logos-agent leave [--cleanup]
 ```
 
+### Production deployment (public domain + HTTPS)
+
+The quick start above binds the panel to loopback and serves it over plain
+HTTP — fine for evaluating on one machine. For routers that dial in from
+other locations you need a **public address for the control plane** and TLS
+on the panel. There are two listeners, handled differently:
+
+| Port | Purpose | TLS |
+|---|---|---|
+| `8080` | panel / REST API | terminated by a reverse proxy in front |
+| `8443` | agent mTLS channel | **terminated by the server itself** — never proxy-terminate it; expose it directly |
+
+**You don't need a *dedicated* domain — a subdomain is enough** (e.g.
+`logos.example.com`). A public static IP works too, but a name lets the
+server move and lets Caddy fetch a certificate. Routers never need any
+inbound port or public IP — the agent only dials **out**.
+
+1. Point a DNS `A`/`AAAA` record at the host: `logos.example.com → <server IP>`.
+2. In `deploy/.env` set both names to that domain:
+   ```sh
+   LOGOS_AGENT_HOST=logos.example.com     # baked into the agent channel cert
+   LOGOS_PANEL_DOMAIN=logos.example.com   # Caddy gets a Let's Encrypt cert for it
+   ```
+3. Bring it up with the Caddy overlay (automatic HTTPS, no manual certs):
+   ```sh
+   cd deploy
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+   ```
+4. Open firewall ports **80** and **443** (Caddy) and **8443** (agent
+   channel). Port 8080 stays on loopback and never needs to be public.
+
+The panel is now at `https://logos.example.com`, and agents dial
+`wss://logos.example.com:8443` automatically. Adopt routers against the
+HTTPS URL:
+
+```sh
+logos-adopt run --router 192.168.1.1 --server https://logos.example.com --code LG-XXXXX-XXXXX
+```
+
+Prefer nginx? Terminate TLS for the panel only and leave 8443 alone:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name logos.example.com;
+    # ssl_certificate / ssl_certificate_key from certbot, etc.
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;   # panel WebSockets (terminal)
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+# Do NOT add a server block for 8443 — the agent channel terminates its own TLS.
+```
+
 ### Building from source
 
 ```sh

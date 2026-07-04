@@ -1,0 +1,14 @@
+# Reverse proxy for the Logos control-plane panel/API with automatic HTTPS
+# (Let's Encrypt). Used by docker-compose.prod.yml.
+#
+# This fronts ONLY the panel/API (port 8080). The agent mTLS channel
+# (port 8443) is NOT proxied here — it terminates TLS itself for client-cert
+# auth and is exposed directly by the base compose file.
+#
+# Set LOGOS_PANEL_DOMAIN in deploy/.env to the panel's public name; Caddy
+# obtains and renews the certificate for it automatically. Ports 80 and 443
+# must be reachable from the internet and the domain's A/AAAA record must
+# point at this host.
+{$LOGOS_PANEL_DOMAIN} {
+	reverse_proxy server:8080
+}
