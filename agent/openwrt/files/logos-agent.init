@@ -7,13 +7,11 @@ STOP=10
 USE_PROCD=1
 
 PROG=/usr/bin/logos-agent
-STATE=/etc/logos/agent.json
 
 start_service() {
-	# Not enrolled yet — nothing to run; enrollment (CLI or first-run
-	# setup page) starts the service afterwards.
-	[ -f "$STATE" ] || return 0
-
+	# Runs whether or not the node is enrolled: without state the agent
+	# serves the first-run setup page (F2, http://<router>:8484) until
+	# someone enrolls it; with state it opens the management channel.
 	procd_open_instance
 	procd_set_param command "$PROG" run
 	procd_set_param respawn 3600 5 0   # retry forever, 5s apart

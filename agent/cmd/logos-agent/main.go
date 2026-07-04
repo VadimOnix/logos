@@ -19,7 +19,7 @@ const usage = `logos-agent — Logos node agent
 
 Usage:
   logos-agent enroll --server <url> --code <claim-code> [--state <path>]
-  logos-agent run    [--state <path>]
+  logos-agent run    [--state <path>] [--portal <addr>|off]
   logos-agent leave  [--cleanup] [--yes] [--state <path>]
   logos-agent status [--state <path>]
   logos-agent version
@@ -50,9 +50,15 @@ func main() {
 	case "run":
 		fs := flag.NewFlagSet("run", flag.ExitOnError)
 		state := fs.String("state", agent.StatePath(), "state file path")
+		portal := fs.String("portal", ":8484",
+			`first-run setup page address while unenrolled ("off" to require CLI enrollment)`)
 		fs.Parse(args)
 		log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		err = agent.Run(ctx, *state, log)
+		if *portal == "off" {
+			err = agent.Run(ctx, *state, log)
+		} else {
+			err = agent.RunWithPortal(ctx, *state, *portal, log)
+		}
 	case "leave":
 		fs := flag.NewFlagSet("leave", flag.ExitOnError)
 		state := fs.String("state", agent.StatePath(), "state file path")
