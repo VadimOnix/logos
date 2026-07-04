@@ -1,6 +1,6 @@
 // Package alerts implements node-offline alerting (F11): a watcher compares
 // every enrolled node's liveness against a threshold and notifies the
-// configured sinks (webhook and/or SMTP) on offline and recovery
+// configured sinks (webhook, Telegram, and/or SMTP) on offline and recovery
 // transitions. State lives in the nodes table, so restarts neither repeat
 // nor lose alerts.
 package alerts
@@ -60,6 +60,51 @@ func (w *WebhookNotifier) Notify(ctx context.Context, subject, text string) erro
 	resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("webhook returned %s", resp.Status)
+	}
+	return nil
+}
+
+// TelegramNotifier sends alerts to a chat via the Telegram Bot API
+// (PRD §5.2 "Telegram delivery"): POST /bot<token>/sendMessage.
+type TelegramNotifier struct {
+	Token   string
+	ChatID  string // numeric chat id or @channelname
+	Client  *http.Client
+	BaseURL string // test override; default https://api.telegram.org
+}
+
+func (t *TelegramNotifier) Name() string { return "telegram" }
+
+func (t *TelegramNotifier) Notify(ctx context.Context, subject, text string) error {
+	base := t.BaseURL
+	if base == "" {
+		base = "https://api.telegram.org"
+	}
+	body, err := json.Marshal(map[string]string{
+		"chat_id": t.ChatID,
+		"text":    subject + "\n\n" + text,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		base+"/bot"+t.Token+"/sendMessage", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := t.Client
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		// Status only — the request URL embeds the bot token, never echo it.
+		return fmt.Errorf("telegram returned %s", resp.Status)
 	}
 	return nil
 }

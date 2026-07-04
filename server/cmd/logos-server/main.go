@@ -138,6 +138,9 @@ func buildNotifiers(cfg *config.Config) []alerts.Notifier {
 	if cfg.AlertWebhookURL != "" {
 		ns = append(ns, &alerts.WebhookNotifier{URL: cfg.AlertWebhookURL})
 	}
+	if cfg.AlertTelegramToken != "" {
+		ns = append(ns, &alerts.TelegramNotifier{Token: cfg.AlertTelegramToken, ChatID: cfg.AlertTelegramChat})
+	}
 	if cfg.SMTPAddr != "" {
 		ns = append(ns, &alerts.SMTPNotifier{
 			Addr:     cfg.SMTPAddr,

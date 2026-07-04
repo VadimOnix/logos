@@ -32,3 +32,26 @@ func TestAlertDiskPct(t *testing.T) {
 		}
 	}
 }
+
+func TestAlertTelegram(t *testing.T) {
+	t.Setenv("LOGOS_DATABASE_URL", "postgres://x")
+
+	// Both set — accepted and carried through.
+	t.Setenv("LOGOS_ALERT_TELEGRAM_TOKEN", "123:abc")
+	t.Setenv("LOGOS_ALERT_TELEGRAM_CHAT", "-10042")
+	cfg, err := FromEnv()
+	if err != nil || cfg.AlertTelegramToken != "123:abc" || cfg.AlertTelegramChat != "-10042" {
+		t.Fatalf("both set: cfg=%+v err=%v", cfg, err)
+	}
+
+	// One without the other is a config error, not a silent no-op.
+	t.Setenv("LOGOS_ALERT_TELEGRAM_CHAT", "")
+	if _, err := FromEnv(); err == nil {
+		t.Error("token without chat accepted")
+	}
+	t.Setenv("LOGOS_ALERT_TELEGRAM_TOKEN", "")
+	t.Setenv("LOGOS_ALERT_TELEGRAM_CHAT", "-10042")
+	if _, err := FromEnv(); err == nil {
+		t.Error("chat without token accepted")
+	}
+}

@@ -140,3 +140,40 @@ func TestWebhookNotifierError(t *testing.T) {
 		t.Error("4xx response reported as success")
 	}
 }
+
+func TestTelegramNotifier(t *testing.T) {
+	var gotPath string
+	var got map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		json.Unmarshal(body, &got)
+	}))
+	defer srv.Close()
+
+	n := &TelegramNotifier{Token: "123:abc", ChatID: "-10042", BaseURL: srv.URL}
+	if err := n.Notify(context.Background(), "subj", "text"); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/bot123:abc/sendMessage" {
+		t.Errorf("path %q", gotPath)
+	}
+	if got["chat_id"] != "-10042" || got["text"] != "subj\n\ntext" {
+		t.Errorf("payload: %v", got)
+	}
+}
+
+func TestTelegramNotifierError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer srv.Close()
+	err := (&TelegramNotifier{Token: "123:abc", ChatID: "1", BaseURL: srv.URL}).
+		Notify(context.Background(), "s", "t")
+	if err == nil {
+		t.Error("4xx response reported as success")
+	}
+	if strings.Contains(err.Error(), "123:abc") {
+		t.Errorf("error leaks bot token: %v", err)
+	}
+}
