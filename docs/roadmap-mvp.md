@@ -50,7 +50,13 @@ enroll into and stay connected to. Everything later builds on this channel.
   opens the management channel, and a node that later *leaves* falls back to
   the portal. The procd service now starts in both states. DNS-hijack-based
   captive redirect is left to the image builder (F14).
-- ⬜ F14: `logos-imagebuilder` wrapper (bake agent + headend + enrollment key into a sysupgrade image).
+- ✅ F14: `logos-imagebuilder` — wraps the official OpenWrt Image Builder:
+  downloads/caches the per-target tarball, stages a FILES overlay (agent
+  binary, enabled procd service, optional `preseed.json` with control-plane
+  URL + claim code), runs `make image`, and collects the sysupgrade images.
+  A flashed router **auto-enrolls on first boot** from the preseed (retrying
+  until WAN is up, file removed after success) with the F2 portal running in
+  parallel as fallback; without a preseed it boots straight into the portal.
 
 ### M3 — Operate a small fleet (in progress)
 

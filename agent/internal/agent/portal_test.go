@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -95,5 +97,46 @@ func TestPortalEnroll(t *testing.T) {
 	case <-p.done:
 	default:
 		t.Error("done not closed after successful enrollment")
+	}
+}
+
+func TestTryPreseed(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "agent.json")
+	p := newPortal(statePath, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	// No preseed file → no attempt.
+	if p.tryPreseed(context.Background()) {
+		t.Fatal("enrolled without a preseed file")
+	}
+
+	os.WriteFile(preseedPath(statePath), []byte(`{"server":"http://cp:8080","code":"LG-PS"}`), 0o600)
+	attempts := 0
+	p.enroll = func(_ context.Context, _, server, code string) error {
+		attempts++
+		if attempts == 1 {
+			return fmt.Errorf("network is unreachable") // WAN not up yet
+		}
+		if server != "http://cp:8080" || code != "LG-PS" {
+			t.Errorf("preseed values: %q %q", server, code)
+		}
+		return nil
+	}
+	if p.tryPreseed(context.Background()) {
+		t.Fatal("first (failing) attempt reported success")
+	}
+	if _, err := os.Stat(preseedPath(statePath)); err != nil {
+		t.Fatal("preseed removed after a FAILED attempt")
+	}
+	if !p.tryPreseed(context.Background()) {
+		t.Fatal("second attempt should succeed")
+	}
+	if _, err := os.Stat(preseedPath(statePath)); !os.IsNotExist(err) {
+		t.Error("preseed file survived successful enrollment")
+	}
+	select {
+	case <-p.done:
+	default:
+		t.Error("done not closed after preseed enrollment")
 	}
 }
