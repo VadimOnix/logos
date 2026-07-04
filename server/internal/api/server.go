@@ -91,6 +91,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/nodes/{id}/config/changes", s.requireUser(s.handleApplyConfig))
 	mux.Handle("POST /api/v1/nodes/{id}/config/changes/{change_id}/rollback", s.requireUser(s.handleRollbackConfig))
 
+	// Overlay networks (F7)
+	mux.Handle("GET /api/v1/overlays", s.requireUser(s.handleListOverlays))
+	mux.Handle("POST /api/v1/overlays", s.requireUser(s.handleCreateOverlay))
+	mux.Handle("DELETE /api/v1/overlays/{id}", s.requireUser(s.handleDeleteOverlay))
+	mux.Handle("POST /api/v1/overlays/{id}/members", s.requireUser(s.handleAddOverlayMember))
+	mux.Handle("DELETE /api/v1/overlays/{id}/members/{node_id}", s.requireUser(s.handleRemoveOverlayMember))
+	mux.Handle("POST /api/v1/overlays/{id}/sync", s.requireUser(s.handleSyncOverlay))
+
 	// Agent-facing
 	mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	mux.HandleFunc("POST /api/v1/agent/leave", s.handleAgentLeave)

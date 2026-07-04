@@ -1,6 +1,6 @@
 # Logos MVP Roadmap (Tier 1)
 
-> **Status:** Living document · **Date:** 2026-07-03 · Companion to [PRD.md](./PRD.md) §5.1
+> **Status:** Living document · **Date:** 2026-07-04 · Companion to [PRD.md](./PRD.md) §5.1
 > Tier 1 = the MVP (v0.x) functional requirements F1–F14: "manage and mesh 10 routers".
 
 This document breaks the MVP requirement table into buildable milestones and tracks
@@ -47,11 +47,21 @@ enroll into and stay connected to. Everything later builds on this channel.
 - ⬜ F2 (full): first-run local setup page with captive redirect for pre-flashed devices.
 - ⬜ F14: `logos-imagebuilder` wrapper (bake agent + headend + enrollment key into a sysupgrade image).
 
-### M3 — Operate a small fleet
+### M3 — Operate a small fleet (in progress)
 
-- F6/F11: metric history (short retention), node-offline alerts (email/webhook).
-- F10: remote terminal via the management channel (audited).
-- F7: overlay networks v1 — WireGuard full mesh, control plane as coordinator (keys, IPAM, routes), subnet-router mode, relay fallback.
+- ✅ F7: overlay networks v1 — WireGuard full mesh with the control plane as
+  coordinator: overlays with a CIDR each, IPAM (lowest free host address),
+  per-node keys **generated on the device** (only the public key is reported),
+  peer/endpoint distribution over the management channel, uci/netifd interface
+  plus a self-contained `logos` firewall zone (two-way forwarding with lan,
+  listen port opened on wan), subnet-router mode via advertised LAN subnets
+  (`allowed_ips` + `route_allowed_ips`), and offline convergence — agents
+  reconcile their full overlay set (including pruning) on every reconnect.
+  Endpoints come from the channel's source address with persistent keepalive
+  for NAT. **Open (next slice):** relay fallback for peers that cannot reach
+  each other directly, richer endpoint discovery (STUN/ICE-style).
+- ⬜ F6/F11: metric history (short retention), node-offline alerts (email/webhook).
+- ⬜ F10: remote terminal via the management channel (audited).
 
 ## Cross-cutting rules (from PRD §6–7, enforced from M0)
 

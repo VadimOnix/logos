@@ -62,7 +62,11 @@ make test
 
 ## Status
 
-Early development (milestone **M0** of the [MVP roadmap](docs/roadmap-mvp.md)):
-enrollment, node registry, live agent channel, and self-hosted deployment work
-end-to-end. OpenWrt packaging, UCI config push, package management, and
-WireGuard overlays are next — see the roadmap.
+Working through the [MVP roadmap](docs/roadmap-mvp.md). End-to-end today:
+enrollment (claim codes + per-node mTLS), node registry and live agent
+channel, package management, UCI config push with auto-revert on lost
+connectivity, monitoring in the heartbeat, SSH adoption with pre-adoption
+snapshot, full-cleanup offboarding, and **WireGuard overlay networks v1**
+(server-coordinated full mesh with on-device keys and subnet-router mode).
+Remaining for the MVP: first-run captive portal, image builder wrapper,
+alerts, remote terminal — see the roadmap.
