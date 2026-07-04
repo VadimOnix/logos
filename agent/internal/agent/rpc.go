@@ -27,6 +27,10 @@ var rpcHandlers = map[string]rpcHandler{
 	"uci.apply":        handleUCIApply,
 	"uci.confirm":      handleUCIConfirm,
 	"uci.restore":      handleUCIRestore,
+
+	"overlay.sync":      handleOverlaySync,
+	"overlay.reconcile": handleOverlayReconcile,
+	"overlay.remove":    handleOverlayRemove,
 }
 
 // rpcConcurrency bounds parallel RPC execution so a burst of requests cannot

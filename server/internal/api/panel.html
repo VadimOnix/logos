@@ -58,6 +58,19 @@
   </table>
   <div class="muted" id="nodes-empty" hidden>No nodes yet — create a claim code and enroll your first router.</div>
 
+  <h2>Overlay networks</h2>
+  <div class="row">
+    <input id="ov-name" placeholder="name" style="width:130px">
+    <input id="ov-cidr" placeholder="100.90.0.0/24" style="width:150px">
+    <button class="primary" id="ov-create">Create overlay</button>
+  </div>
+  <div class="muted" style="margin-top:6px">
+    WireGuard mesh coordinated by this server — keys are generated on the devices and never leave them.
+    Give a member a LAN subnet to share it with the whole overlay (subnet router).
+    Nodes need the <code>wireguard-tools</code> package (installable from the node view).
+  </div>
+  <div id="overlays"></div>
+
   <section id="detail" hidden>
     <h2 id="detail-title"></h2>
     <div class="row" style="margin-bottom:8px">
@@ -116,10 +129,13 @@ function fmtMem(m) {
   return Math.round(100 * used / m.mem_total_kb) + '%';
 }
 
+let allNodes = [];
+
 async function refreshNodes() {
   if ($('app').hidden) return;
   const nodes = await api('/api/v1/nodes').catch(() => null);
   if (!nodes) return;
+  allNodes = nodes;
   $('nodes-empty').hidden = nodes.length > 0;
   $('nodes').replaceChildren(...nodes.map(n => {
     const tr = document.createElement('tr');
@@ -173,7 +189,7 @@ $('login').onsubmit = async (e) => {
     const me = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
     $('me-email').textContent = me.email;
     show(true);
-    refreshNodes();
+    refreshNodes().then(refreshOverlays);
   } catch (err) { $('login-error').textContent = err.message; }
 };
 
@@ -286,6 +302,128 @@ $('load-changes').onclick = () => nodeAction('loading history', async () => {
   }).join('\n');
 });
 
+// Overlay networks (F7)
+async function refreshOverlays() {
+  if ($('app').hidden) return;
+  // Don't yank the DOM out from under the user while they type in a form.
+  if ($('overlays').contains(document.activeElement)) return;
+  const overlays = await api('/api/v1/overlays').catch(() => null);
+  if (!overlays) return;
+  $('overlays').replaceChildren(...overlays.map(renderOverlay));
+}
+
+function renderOverlay(o) {
+  const box = document.createElement('div');
+  box.style.cssText = 'border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:12px';
+
+  const head = document.createElement('div');
+  head.className = 'row';
+  head.style.justifyContent = 'space-between';
+  const title = document.createElement('div');
+  title.innerHTML = `<strong>${esc(o.name)}</strong> <span class="muted">${esc(o.cidr)} · ${o.members.length} member(s)</span>`;
+  const actions = document.createElement('div');
+  actions.className = 'row';
+  const syncBtn = document.createElement('button');
+  syncBtn.textContent = 'Sync now';
+  syncBtn.onclick = async () => {
+    syncBtn.disabled = true;
+    await api(`/api/v1/overlays/${o.id}/sync`, { method: 'POST' }).catch(e => alert(e.message));
+    syncBtn.disabled = false;
+    refreshOverlays();
+  };
+  const delBtn = document.createElement('button');
+  delBtn.className = 'danger';
+  delBtn.textContent = 'Delete';
+  delBtn.onclick = async () => {
+    if (!confirm(`Delete overlay "${o.name}"? WireGuard interfaces will be removed from all members.`)) return;
+    await api(`/api/v1/overlays/${o.id}`, { method: 'DELETE' }).catch(e => alert(e.message));
+    refreshOverlays();
+  };
+  actions.append(syncBtn, delBtn);
+  head.append(title, actions);
+  box.append(head);
+
+  if (o.members.length) {
+    const tbl = document.createElement('table');
+    tbl.innerHTML = '<thead><tr><th>Node</th><th>Overlay IP</th><th>Endpoint</th><th>Shared subnets</th><th>State</th><th></th></tr></thead>';
+    const tb = document.createElement('tbody');
+    for (const m of o.members) {
+      const tr = document.createElement('tr');
+      const state = m.sync_error
+        ? `<span class="status-left">${esc(m.sync_error)}</span>`
+        : (m.public_key ? '<span class="status-online">synced</span>' : '<span class="muted">waiting for first sync…</span>');
+      tr.innerHTML =
+        `<td>${esc(m.node_name)}</td><td><code>${esc(m.overlay_ip)}</code></td>` +
+        `<td>${m.node_addr ? esc(m.node_addr) + ':' + m.listen_port : '—'}</td>` +
+        `<td>${m.subnets && m.subnets.length ? m.subnets.map(esc).join(', ') : '—'}</td>` +
+        `<td>${state}</td>`;
+      const act = document.createElement('td');
+      const rm = document.createElement('button');
+      rm.className = 'danger';
+      rm.textContent = 'Remove';
+      rm.onclick = async () => {
+        if (!confirm(`Remove ${m.node_name} from "${o.name}"?`)) return;
+        await api(`/api/v1/overlays/${o.id}/members/${m.node_id}`, { method: 'DELETE' }).catch(e => alert(e.message));
+        refreshOverlays();
+      };
+      act.append(rm);
+      tr.append(act);
+      tb.append(tr);
+    }
+    tbl.append(tb);
+    box.append(tbl);
+  }
+
+  const memberIDs = new Set(o.members.map(m => m.node_id));
+  const candidates = allNodes.filter(n => n.status === 'enrolled' && !memberIDs.has(n.id));
+  if (candidates.length) {
+    const add = document.createElement('div');
+    add.className = 'row';
+    add.style.marginTop = '8px';
+    const sel = document.createElement('select');
+    sel.style.cssText = 'font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:6px;padding:7px 10px';
+    for (const n of candidates) {
+      const opt = document.createElement('option');
+      opt.value = n.id;
+      opt.textContent = n.name;
+      sel.append(opt);
+    }
+    const subnets = document.createElement('input');
+    subnets.placeholder = 'shared LAN subnets, e.g. 192.168.5.0/24 (optional)';
+    subnets.style.width = '280px';
+    const btn = document.createElement('button');
+    btn.textContent = 'Add member';
+    btn.onclick = async () => {
+      const body = {
+        node_id: sel.value,
+        subnets: subnets.value.split(',').map(s => s.trim()).filter(Boolean),
+      };
+      await api(`/api/v1/overlays/${o.id}/members`, { method: 'POST', body: JSON.stringify(body) })
+        .catch(e => alert(e.message));
+      subnets.blur(); sel.blur();
+      refreshOverlays();
+    };
+    add.append(sel, subnets, btn);
+    box.append(add);
+  }
+  return box;
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+$('ov-create').onclick = async () => {
+  const name = $('ov-name').value.trim(), cidr = $('ov-cidr').value.trim();
+  if (!name || !cidr) { alert('Enter a name and a CIDR, e.g. 100.90.0.0/24.'); return; }
+  try {
+    await api('/api/v1/overlays', { method: 'POST', body: JSON.stringify({ name, cidr }) });
+    $('ov-name').value = ''; $('ov-cidr').value = '';
+    $('ov-name').blur(); $('ov-cidr').blur();
+    refreshOverlays();
+  } catch (e) { alert(e.message); }
+};
+
 $('new-code').onclick = async () => {
   const c = await api('/api/v1/claim-codes', { method: 'POST', body: JSON.stringify({}) }).catch(e => { alert(e.message); return null; });
   if (!c) return;
@@ -300,8 +438,9 @@ $('new-code').onclick = async () => {
     const me = await api('/api/v1/me');
     $('me-email').textContent = me.email;
     show(true);
-    refreshNodes();
+    refreshNodes().then(refreshOverlays);
   } catch { show(false); }
   setInterval(refreshNodes, 5000);
+  setInterval(refreshOverlays, 7000);
 })();
 </script>

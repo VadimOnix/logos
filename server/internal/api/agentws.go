@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -162,6 +163,14 @@ func (s *Server) serveAgentWS(w http.ResponseWriter, r *http.Request, node *stor
 	s.hub.Register(node.ID, conn)
 	s.log.Info("agent connected", "node", node.ID, "name", node.Name)
 
+	// The channel's source address is the best WireGuard endpoint candidate
+	// other overlay peers can dial (F7).
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
+		if err := s.store.SetNodeAddr(r.Context(), node.ID, host); err != nil {
+			s.log.Warn("record node address", "node", node.ID, "err", err)
+		}
+	}
+
 	defer func() {
 		s.hub.Unregister(node.ID, conn)
 		conn.Close()
@@ -195,6 +204,9 @@ func (s *Server) serveAgentWS(w http.ResponseWriter, r *http.Request, node *stor
 				// agent is still holding a revert window for.
 				go s.reconcilePendingApply(node.ID, msg.PendingApplyID)
 			}
+			// Bring the node's WireGuard interfaces to the desired state —
+			// overlays may have changed while it was offline (F7).
+			go s.reconcileNodeOverlays(node.ID)
 		case msgHeartbeat:
 			err = s.store.TouchNode(ctx, node.ID, msg.Metrics)
 		case msgRPCResult:
