@@ -78,7 +78,7 @@ func (s *Server) handleGetNode(w http.ResponseWriter, r *http.Request, _ *store.
 // handleRemoveNode is the panel-side "Remove from management" (PRD §4.4):
 // revokes the node's token, marks it left, and tells a connected agent to
 // unenroll itself.
-func (s *Server) handleRemoveNode(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) handleRemoveNode(w http.ResponseWriter, r *http.Request, u *store.User) {
 	id := r.PathValue("id")
 	switch err := s.store.MarkNodeLeft(r.Context(), id); {
 	case errors.Is(err, store.ErrNotFound):
@@ -89,13 +89,14 @@ func (s *Server) handleRemoveNode(w http.ResponseWriter, r *http.Request, _ *sto
 		return
 	}
 	s.hub.Kick(id, "removed from management in the panel")
+	s.audit(r.Context(), u, "node.remove", id, "")
 	s.log.Info("node removed from management", "node", id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "left"})
 }
 
 // handleDeleteNode erases the node record (server-side data deletion, PRD §4.4).
 // Only nodes that already left can be deleted, to prevent skipping offboarding.
-func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request, _ *store.User) {
+func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request, u *store.User) {
 	id := r.PathValue("id")
 	n, err := s.store.GetNode(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
@@ -114,5 +115,6 @@ func (s *Server) handleDeleteNode(w http.ResponseWriter, r *http.Request, _ *sto
 		s.internalError(w, err)
 		return
 	}
+	s.audit(r.Context(), u, "node.delete", id, n.Name)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }

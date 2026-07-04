@@ -55,6 +55,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Secure:   r.TLS != nil,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
+	s.audit(r.Context(), u, "auth.login", "", "")
 	writeJSON(w, http.StatusOK, map[string]any{"email": u.Email})
 }
 
@@ -101,6 +102,7 @@ func (s *Server) handleCreateToken(w http.ResponseWriter, r *http.Request, u *st
 		s.internalError(w, err)
 		return
 	}
+	s.audit(r.Context(), u, "token.create", t.Name, "")
 	// The raw token is returned exactly once.
 	writeJSON(w, http.StatusCreated, map[string]any{"id": t.ID, "name": t.Name, "token": token})
 }
@@ -117,6 +119,7 @@ func (s *Server) handleDeleteToken(w http.ResponseWriter, r *http.Request, u *st
 	case err != nil:
 		s.internalError(w, err)
 	default:
+		s.audit(r.Context(), u, "token.delete", r.PathValue("id"), "")
 		writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 	}
 }
