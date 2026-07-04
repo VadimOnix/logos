@@ -23,6 +23,14 @@ services:
       # Public name agents use for the mTLS channel; must resolve to this host.
       LOGOS_AGENT_HOST: ${LOGOS_AGENT_HOST:-localhost,127.0.0.1}
       LOGOS_AGENT_ENDPOINT: ${LOGOS_AGENT_ENDPOINT:-}
+      # Node-offline alerts (F11); watcher is off until a sink is set.
+      LOGOS_ALERT_WEBHOOK_URL: ${LOGOS_ALERT_WEBHOOK_URL:-}
+      LOGOS_ALERT_OFFLINE_AFTER: ${LOGOS_ALERT_OFFLINE_AFTER:-}
+      LOGOS_SMTP_ADDR: ${LOGOS_SMTP_ADDR:-}
+      LOGOS_SMTP_FROM: ${LOGOS_SMTP_FROM:-}
+      LOGOS_SMTP_TO: ${LOGOS_SMTP_TO:-}
+      LOGOS_SMTP_USER: ${LOGOS_SMTP_USER:-}
+      LOGOS_SMTP_PASSWORD: ${LOGOS_SMTP_PASSWORD:-}
     depends_on:
       db:
         condition: service_healthy

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -33,6 +34,16 @@ type Config struct {
 	// logos-agent-linux-<goarch> for the adoption tool to download
 	// (LOGOS_AGENT_BINARIES_DIR); empty disables the endpoint.
 	AgentBinariesDir string
+
+	// Node-offline alerting (F11). Alerts are enabled when a webhook URL
+	// and/or SMTP settings are present.
+	AlertWebhookURL   string        // LOGOS_ALERT_WEBHOOK_URL
+	AlertOfflineAfter time.Duration // LOGOS_ALERT_OFFLINE_AFTER (default 3m)
+	SMTPAddr          string        // LOGOS_SMTP_ADDR (host:port)
+	SMTPFrom          string        // LOGOS_SMTP_FROM
+	SMTPTo            []string      // LOGOS_SMTP_TO (comma-separated)
+	SMTPUser          string        // LOGOS_SMTP_USER (optional)
+	SMTPPassword      string        // LOGOS_SMTP_PASSWORD (optional)
 }
 
 func FromEnv() (*Config, error) {
@@ -59,6 +70,28 @@ func FromEnv() (*Config, error) {
 			return nil, fmt.Errorf("LOGOS_AGENT_LISTEN: %w", err)
 		}
 		cfg.AgentEndpoint = "wss://" + net.JoinHostPort(cfg.AgentHosts[0], port)
+	}
+
+	cfg.AlertWebhookURL = os.Getenv("LOGOS_ALERT_WEBHOOK_URL")
+	cfg.SMTPAddr = os.Getenv("LOGOS_SMTP_ADDR")
+	cfg.SMTPFrom = os.Getenv("LOGOS_SMTP_FROM")
+	cfg.SMTPUser = os.Getenv("LOGOS_SMTP_USER")
+	cfg.SMTPPassword = os.Getenv("LOGOS_SMTP_PASSWORD")
+	for _, to := range strings.Split(os.Getenv("LOGOS_SMTP_TO"), ",") {
+		if to = strings.TrimSpace(to); to != "" {
+			cfg.SMTPTo = append(cfg.SMTPTo, to)
+		}
+	}
+	if cfg.SMTPAddr != "" && (cfg.SMTPFrom == "" || len(cfg.SMTPTo) == 0) {
+		return nil, fmt.Errorf("LOGOS_SMTP_ADDR is set but LOGOS_SMTP_FROM/LOGOS_SMTP_TO are missing")
+	}
+	cfg.AlertOfflineAfter = 3 * time.Minute
+	if v := os.Getenv("LOGOS_ALERT_OFFLINE_AFTER"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d < 30*time.Second {
+			return nil, fmt.Errorf("LOGOS_ALERT_OFFLINE_AFTER must be a duration >= 30s (e.g. 3m)")
+		}
+		cfg.AlertOfflineAfter = d
 	}
 	return cfg, nil
 }

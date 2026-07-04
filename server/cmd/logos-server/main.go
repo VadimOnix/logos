@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/VadimOnix/logos/server/internal/alerts"
 	"github.com/VadimOnix/logos/server/internal/api"
 	"github.com/VadimOnix/logos/server/internal/auth"
 	"github.com/VadimOnix/logos/server/internal/ca"
@@ -71,8 +72,21 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	srv := api.NewServer(st, hub.New(), log, authority, cfg.AgentEndpoint, cfg.AgentBinariesDir)
+	h := hub.New()
+	srv := api.NewServer(st, h, log, authority, cfg.AgentEndpoint, cfg.AgentBinariesDir)
 	srv.StartSessionJanitor(ctx)
+
+	if ns := buildNotifiers(cfg); len(ns) > 0 {
+		w := &alerts.Watcher{
+			Store:        st,
+			IsOnline:     h.IsOnline,
+			Notifiers:    ns,
+			OfflineAfter: cfg.AlertOfflineAfter,
+			Interval:     30 * time.Second,
+			Log:          log,
+		}
+		go w.Run(ctx)
+	}
 
 	httpSrv := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -114,6 +128,25 @@ func run(log *slog.Logger) error {
 		}
 		return nil
 	}
+}
+
+// buildNotifiers assembles the alert sinks from configuration; an empty
+// result disables the offline watcher entirely.
+func buildNotifiers(cfg *config.Config) []alerts.Notifier {
+	var ns []alerts.Notifier
+	if cfg.AlertWebhookURL != "" {
+		ns = append(ns, &alerts.WebhookNotifier{URL: cfg.AlertWebhookURL})
+	}
+	if cfg.SMTPAddr != "" {
+		ns = append(ns, &alerts.SMTPNotifier{
+			Addr:     cfg.SMTPAddr,
+			From:     cfg.SMTPFrom,
+			To:       cfg.SMTPTo,
+			Username: cfg.SMTPUser,
+			Password: cfg.SMTPPassword,
+		})
+	}
+	return ns
 }
 
 // loadOrCreateCA restores the internal CA from Postgres or mints one on

@@ -23,6 +23,9 @@ type Node struct {
 	LeftAt       *time.Time `json:"left_at,omitempty"`
 	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
 	LastMetrics  []byte     `json:"-"`
+	// AlertedOfflineAt is set while an offline alert for the node is
+	// outstanding (F11); cleared when the node comes back.
+	AlertedOfflineAt *time.Time `json:"-"`
 }
 
 type NodeInfo struct {
@@ -34,12 +37,13 @@ type NodeInfo struct {
 }
 
 const nodeCols = `id, name, public_key, hostname, agent_version, os_version, arch,
-	status, enrolled_at, left_at, last_seen_at, last_metrics`
+	status, enrolled_at, left_at, last_seen_at, last_metrics, alerted_offline_at`
 
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	n := &Node{}
 	err := row.Scan(&n.ID, &n.Name, &n.PublicKey, &n.Hostname, &n.AgentVersion,
-		&n.OSVersion, &n.Arch, &n.Status, &n.EnrolledAt, &n.LeftAt, &n.LastSeenAt, &n.LastMetrics)
+		&n.OSVersion, &n.Arch, &n.Status, &n.EnrolledAt, &n.LeftAt, &n.LastSeenAt, &n.LastMetrics,
+		&n.AlertedOfflineAt)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -115,6 +119,17 @@ func (s *Store) MarkNodeLeft(ctx context.Context, id string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetNodeOfflineAlerted records or clears the outstanding-offline-alert mark
+// (F11). Persisted so a server restart neither re-alerts nor forgets.
+func (s *Store) SetNodeOfflineAlerted(ctx context.Context, id string, alerted bool) error {
+	q := `update nodes set alerted_offline_at = now() where id = $1`
+	if !alerted {
+		q = `update nodes set alerted_offline_at = null where id = $1`
+	}
+	_, err := s.pool.Exec(ctx, q, id)
+	return err
 }
 
 // DeleteNode removes a node record entirely (server-side data deletion, PRD §4.4).

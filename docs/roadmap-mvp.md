@@ -60,7 +60,12 @@ enroll into and stay connected to. Everything later builds on this channel.
   Endpoints come from the channel's source address with persistent keepalive
   for NAT. **Open (next slice):** relay fallback for peers that cannot reach
   each other directly, richer endpoint discovery (STUN/ICE-style).
-- ⬜ F6/F11: metric history (short retention), node-offline alerts (email/webhook).
+- ✅ F11: node-offline alerts — a watcher compares node liveness (live
+  channel wins over a stale heartbeat) against a threshold
+  (`LOGOS_ALERT_OFFLINE_AFTER`, default 3m) and notifies a JSON webhook
+  and/or SMTP recipients on offline **and recovery**; alert state persists in
+  the registry, so restarts neither repeat nor lose alerts.
+- ⬜ F6: metric history (short retention).
 - ⬜ F10: remote terminal via the management channel (audited).
 
 ## Cross-cutting rules (from PRD §6–7, enforced from M0)
