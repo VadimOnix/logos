@@ -2,12 +2,22 @@
 // agent currently holds the persistent management channel.
 package hub
 
-import "sync"
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"sync"
+)
+
+// ErrOffline is returned when an RPC targets a node with no live channel.
+var ErrOffline = errors.New("node is offline")
 
 // AgentConn is what the hub needs from a live agent connection.
 type AgentConn interface {
 	// SendLeave asks the agent to unenroll itself; best-effort.
 	SendLeave(reason string)
+	// Call invokes a method on the agent and waits for its result.
+	Call(ctx context.Context, method string, params any) (json.RawMessage, error)
 	// Close tears the connection down.
 	Close()
 }
@@ -59,6 +69,17 @@ func (h *Hub) Kick(nodeID, reason string) {
 		c.SendLeave(reason)
 		c.Close()
 	}
+}
+
+// Call invokes a method on a node's agent over its live channel.
+func (h *Hub) Call(ctx context.Context, nodeID, method string, params any) (json.RawMessage, error) {
+	h.mu.RLock()
+	c := h.conns[nodeID]
+	h.mu.RUnlock()
+	if c == nil {
+		return nil, ErrOffline
+	}
+	return c.Call(ctx, method, params)
 }
 
 func (h *Hub) OnlineCount() int {

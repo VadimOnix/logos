@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -18,40 +20,119 @@ import (
 // declaring the channel dead. Agents send heartbeats every 30s.
 const heartbeatTimeout = 90 * time.Second
 
-// agentConn adapts a websocket connection to hub.AgentConn.
+// agentConn adapts a websocket connection to hub.AgentConn and correlates
+// RPC requests with their results.
 type agentConn struct {
 	ws     *websocket.Conn
 	nodeID string
 
-	mu     sync.Mutex // guards writes
-	closed bool
+	writeMu sync.Mutex // one writer at a time on the socket
+	closed  bool
+
+	pendingMu sync.Mutex
+	pending   map[string]chan agentMsg
+	nextID    uint64
+}
+
+func newAgentConn(ws *websocket.Conn, nodeID string) *agentConn {
+	return &agentConn{ws: ws, nodeID: nodeID, pending: make(map[string]chan agentMsg)}
+}
+
+func (c *agentConn) write(ctx context.Context, msg agentMsg) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if c.closed {
+		return errors.New("connection closed")
+	}
+	writeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return c.ws.Write(writeCtx, websocket.MessageText, data)
 }
 
 func (c *agentConn) SendLeave(reason string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	msg, _ := json.Marshal(agentMsg{Type: msgLeave, Reason: reason})
-	c.ws.Write(ctx, websocket.MessageText, msg) // best-effort
+	c.write(context.Background(), agentMsg{Type: msgLeave, Reason: reason}) // best-effort
 }
 
 func (c *agentConn) Close() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.writeMu.Lock()
 	if c.closed {
+		c.writeMu.Unlock()
 		return
 	}
 	c.closed = true
+	c.writeMu.Unlock()
 	c.ws.Close(websocket.StatusNormalClosure, "")
+
+	// Fail every in-flight RPC.
+	c.pendingMu.Lock()
+	for id, ch := range c.pending {
+		close(ch)
+		delete(c.pending, id)
+	}
+	c.pendingMu.Unlock()
+}
+
+// Call sends an RPC to the agent and waits for the matching rpc_result.
+func (c *agentConn) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	var rawParams json.RawMessage
+	if params != nil {
+		p, err := json.Marshal(params)
+		if err != nil {
+			return nil, err
+		}
+		rawParams = p
+	}
+
+	c.pendingMu.Lock()
+	c.nextID++
+	id := strconv.FormatUint(c.nextID, 10)
+	ch := make(chan agentMsg, 1)
+	c.pending[id] = ch
+	c.pendingMu.Unlock()
+
+	defer func() {
+		c.pendingMu.Lock()
+		delete(c.pending, id)
+		c.pendingMu.Unlock()
+	}()
+
+	if err := c.write(ctx, agentMsg{Type: msgRPC, ID: id, Method: method, Params: rawParams}); err != nil {
+		return nil, err
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res, ok := <-ch:
+		if !ok {
+			return nil, errors.New("connection lost while waiting for the agent")
+		}
+		if !res.OK {
+			return nil, fmt.Errorf("agent error: %s", res.Error)
+		}
+		return res.Result, nil
+	}
+}
+
+// resolve routes an rpc_result to its waiting Call, if any.
+func (c *agentConn) resolve(msg agentMsg) {
+	c.pendingMu.Lock()
+	ch := c.pending[msg.ID]
+	delete(c.pending, msg.ID)
+	c.pendingMu.Unlock()
+	if ch != nil {
+		ch <- msg
+	}
 }
 
 // handleAgentWS is the persistent management channel (PRD F1/F3): the agent
 // dials out, authenticates with its node token, and streams hello/heartbeat
-// messages. Node liveness in the panel derives from this connection.
+// messages; the server invokes RPCs (packages, config) over the same socket.
+// Node liveness in the panel derives from this connection.
 func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	tok := bearerToken(r)
 	if tok == "" {
@@ -72,7 +153,7 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return // Accept already wrote the HTTP error
 	}
-	conn := &agentConn{ws: ws, nodeID: node.ID}
+	conn := newAgentConn(ws, node.ID)
 	s.hub.Register(node.ID, conn)
 	s.log.Info("agent connected", "node", node.ID, "name", node.Name)
 
@@ -106,6 +187,8 @@ func (s *Server) handleAgentWS(w http.ResponseWriter, r *http.Request) {
 			})
 		case msgHeartbeat:
 			err = s.store.TouchNode(ctx, node.ID, msg.Metrics)
+		case msgRPCResult:
+			conn.resolve(msg)
 		default:
 			s.log.Warn("agent sent unknown message type", "node", node.ID, "type", msg.Type)
 		}

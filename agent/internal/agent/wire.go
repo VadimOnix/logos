@@ -8,6 +8,8 @@ const (
 	msgHello     = "hello"
 	msgHeartbeat = "heartbeat"
 	msgLeave     = "leave"
+	msgRPC       = "rpc"        // server → agent: invoke a method
+	msgRPCResult = "rpc_result" // agent → server: method result
 )
 
 type wireMsg struct {
@@ -21,6 +23,14 @@ type wireMsg struct {
 	Metrics json.RawMessage `json:"metrics,omitempty"`
 
 	Reason string `json:"reason,omitempty"`
+
+	// rpc / rpc_result
+	ID     string          `json:"id,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	OK     bool            `json:"ok,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  string          `json:"error,omitempty"`
 }
 
 type enrollRequest struct {
