@@ -10,6 +10,12 @@ const (
 	msgLeave     = "leave"
 	msgRPC       = "rpc"        // server → agent: invoke a method
 	msgRPCResult = "rpc_result" // agent → server: method result
+
+	// F10 remote terminal: a server-initiated interactive shell session
+	// multiplexed over the management channel.
+	msgTermOpen  = "term_open"  // server → agent
+	msgTermData  = "term_data"  // both directions
+	msgTermClose = "term_close" // both directions
 )
 
 type wireMsg struct {
@@ -34,6 +40,12 @@ type wireMsg struct {
 	OK     bool            `json:"ok,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  string          `json:"error,omitempty"`
+
+	// term_open / term_data / term_close (F10)
+	TermID string `json:"term_id,omitempty"`
+	Data   []byte `json:"data,omitempty"` // base64 on the wire
+	Cols   uint16 `json:"cols,omitempty"`
+	Rows   uint16 `json:"rows,omitempty"`
 }
 
 type enrollRequest struct {

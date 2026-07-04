@@ -151,8 +151,15 @@ func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
 		return err
 	}
 
-	// Reader: server-initiated messages — leave and RPCs (packages, config).
+	// Reader: server-initiated messages — leave, RPCs, terminal streams.
 	rpcSem := make(chan struct{}, rpcConcurrency)
+	sendAsync := func(out wireMsg) {
+		if err := sess.send(connCtx, out); err != nil && connCtx.Err() == nil {
+			log.Warn("send message", "type", out.Type, "err", err)
+		}
+	}
+	terms := newTermManager(log, sendAsync)
+	defer terms.closeAll()
 	readErr := make(chan error, 1)
 	go func() {
 		for {
@@ -171,11 +178,13 @@ func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
 				readErr <- errLeft
 				return
 			case msgRPC:
-				dispatchRPC(connCtx, msg, log, rpcSem, func(out wireMsg) {
-					if err := sess.send(connCtx, out); err != nil && connCtx.Err() == nil {
-						log.Warn("send rpc result", "err", err)
-					}
-				})
+				dispatchRPC(connCtx, msg, log, rpcSem, sendAsync)
+			case msgTermOpen:
+				terms.open(connCtx, msg)
+			case msgTermData:
+				terms.data(msg)
+			case msgTermClose:
+				terms.close(msg.TermID, "closed by server")
 			}
 		}
 	}()
