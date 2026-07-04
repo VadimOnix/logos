@@ -2,12 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
@@ -136,6 +138,47 @@ func (p *portal) render(w http.ResponseWriter) {
 	portalTmpl.Execute(w, d)
 }
 
+// preseedPath is the enrollment preseed a baked image ships next to the
+// state file (F14): {"server": ..., "code": ...}. Single-use — removed after
+// a successful enrollment (the claim code is single-use anyway).
+func preseedPath(statePath string) string {
+	return filepath.Join(filepath.Dir(statePath), "preseed.json")
+}
+
+// tryPreseed attempts one auto-enrollment from the preseed file, if present.
+// Returns true when the device is now enrolled.
+func (p *portal) tryPreseed(ctx context.Context) bool {
+	data, err := os.ReadFile(preseedPath(p.statePath))
+	if err != nil {
+		return false
+	}
+	var ps struct {
+		Server string `json:"server"`
+		Code   string `json:"code"`
+	}
+	if err := json.Unmarshal(data, &ps); err != nil || ps.Server == "" || ps.Code == "" {
+		p.log.Warn("ignoring malformed preseed file", "path", preseedPath(p.statePath))
+		return false
+	}
+	enrollCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	err = p.enroll(enrollCtx, p.statePath, ps.Server, ps.Code)
+	cancel()
+	if err != nil {
+		// Normal early in first boot: WAN may not be up yet. Keep retrying.
+		p.log.Warn("preseed enrollment attempt failed", "server", ps.Server, "err", err)
+		return false
+	}
+	os.Remove(preseedPath(p.statePath))
+	p.mu.Lock()
+	if !p.enrolled {
+		p.enrolled = true
+		close(p.done)
+	}
+	p.mu.Unlock()
+	p.log.Info("auto-enrolled from preseed", "server", ps.Server)
+	return true
+}
+
 // servePortal blocks until enrollment succeeds (or ctx is done).
 func servePortal(ctx context.Context, statePath, addr string, log *slog.Logger) error {
 	p := newPortal(statePath, log)
@@ -144,6 +187,22 @@ func servePortal(ctx context.Context, statePath, addr string, log *slog.Logger) 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.ListenAndServe() }()
 	log.Info("setup portal listening — open it in a browser to enroll this device", "addr", addr)
+
+	// A baked image (F14) auto-enrolls in the background while the portal
+	// serves; whichever succeeds first wins.
+	if _, err := os.Stat(preseedPath(statePath)); err == nil {
+		go func() {
+			for !p.tryPreseed(ctx) {
+				select {
+				case <-ctx.Done():
+					return
+				case <-p.done:
+					return
+				case <-time.After(15 * time.Second):
+				}
+			}
+		}()
+	}
 
 	select {
 	case err := <-errCh:

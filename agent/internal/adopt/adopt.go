@@ -9,28 +9,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/VadimOnix/logos/agent/internal/initscript"
 )
-
-// initScript mirrors agent/openwrt/files/logos-agent.init (keep in sync);
-// embedded here so the adoption tool is a single self-contained binary.
-const initScript = `#!/bin/sh /etc/rc.common
-START=95
-STOP=10
-USE_PROCD=1
-
-PROG=/usr/bin/logos-agent
-STATE=/etc/logos/agent.json
-
-start_service() {
-	[ -f "$STATE" ] || return 0
-	procd_open_instance
-	procd_set_param command "$PROG" run
-	procd_set_param respawn 3600 5 0
-	procd_set_param stdout 1
-	procd_set_param stderr 1
-	procd_close_instance
-}
-`
 
 const (
 	agentPath = "/usr/bin/logos-agent"
@@ -129,7 +110,7 @@ func Adopt(ctx context.Context, opts Options, out io.Writer) error {
 		return err
 	}
 	if info.HasProcd {
-		if err := upload(initPath, []byte(initScript), "755"); err != nil {
+		if err := upload(initPath, []byte(initscript.Script), "755"); err != nil {
 			return err
 		}
 	}

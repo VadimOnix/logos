@@ -1,8 +1,15 @@
-#!/bin/sh /etc/rc.common
+// Package initscript holds the canonical procd init script for logos-agent,
+// shared by every place that installs the agent outside the package system:
+// the SSH adoption tool (F12) and the image builder wrapper (F14).
+//
+// Keep in sync with agent/openwrt/files/logos-agent.init (the copy the
+// OpenWrt feed package installs).
+package initscript
+
+const Script = `#!/bin/sh /etc/rc.common
 # procd service for logos-agent: with enrollment state it opens the
 # management channel; without it the agent serves the first-run setup
 # portal (F2, http://<router>:8484).
-# Keep in sync with agent/internal/initscript/initscript.go.
 
 START=95
 STOP=10
@@ -22,3 +29,4 @@ start_service() {
 service_triggers() {
 	procd_add_reload_trigger logos
 }
+`
