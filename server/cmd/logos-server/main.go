@@ -82,6 +82,7 @@ func run(log *slog.Logger) error {
 			IsOnline:     h.IsOnline,
 			Notifiers:    ns,
 			OfflineAfter: cfg.AlertOfflineAfter,
+			DiskPct:      cfg.AlertDiskPct,
 			Interval:     30 * time.Second,
 			Log:          log,
 		}

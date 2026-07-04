@@ -3,6 +3,7 @@ package alerts
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,15 +31,72 @@ func TestDecide(t *testing.T) {
 	}
 	online := map[string]bool{"fresh": true, "back": true}
 
-	evs := decide(nodes, online, after, now)
+	evs := decide(nodes, online, after, 0, now)
 	if len(evs) != 2 {
 		t.Fatalf("want 2 events, got %+v", evs)
 	}
-	if evs[0].NodeID != "gone" || !evs[0].Offline || !strings.Contains(evs[0].Subject, "offline") {
+	if evs[0].NodeID != "gone" || evs[0].Kind != kindOffline || !evs[0].Raise || !strings.Contains(evs[0].Subject, "offline") {
 		t.Errorf("offline event: %+v", evs[0])
 	}
-	if evs[1].NodeID != "back" || evs[1].Offline || !strings.Contains(evs[1].Subject, "back online") {
+	if evs[1].NodeID != "back" || evs[1].Kind != kindOffline || evs[1].Raise || !strings.Contains(evs[1].Subject, "back online") {
 		t.Errorf("recovery event: %+v", evs[1])
+	}
+}
+
+// fsMetrics builds a heartbeat payload with a given rootfs usage percentage.
+func fsMetrics(usedPct float64) []byte {
+	const total = 10000.0
+	free := total * (100 - usedPct) / 100
+	return []byte(fmt.Sprintf(`{"rootfs_total_kb":%g,"rootfs_free_kb":%g}`, total, free))
+}
+
+func TestDecideDiskFull(t *testing.T) {
+	now := time.Now()
+	online := map[string]bool{"full": true, "recovered": true, "hovering": true, "offline-full": false}
+	nodes := []*store.Node{
+		// crosses the threshold, not yet alerted → raise
+		{ID: "full", Name: "full", Status: store.NodeStatusEnrolled, LastMetrics: fsMetrics(95)},
+		// alerted, dropped below threshold-margin → clear
+		{ID: "recovered", Name: "recovered", Status: store.NodeStatusEnrolled,
+			LastMetrics: fsMetrics(80), AlertedDiskFullAt: tp(now)},
+		// alerted, still in the hysteresis band (88 > 90-5) → no event
+		{ID: "hovering", Name: "hovering", Status: store.NodeStatusEnrolled,
+			LastMetrics: fsMetrics(88), AlertedDiskFullAt: tp(now)},
+		// full but offline → stale data, no raise
+		{ID: "offline-full", Name: "offline-full", Status: store.NodeStatusEnrolled,
+			LastMetrics: fsMetrics(99)},
+		// below threshold, never alerted → nothing
+		{ID: "healthy", Name: "healthy", Status: store.NodeStatusEnrolled, LastMetrics: fsMetrics(20)},
+	}
+	online["healthy"] = true
+
+	evs := decide(nodes, online, time.Minute, 90, now)
+	if len(evs) != 2 {
+		t.Fatalf("want 2 disk events, got %+v", evs)
+	}
+	byNode := map[string]event{}
+	for _, e := range evs {
+		byNode[e.NodeID] = e
+	}
+	if e, ok := byNode["full"]; !ok || e.Kind != kindDisk || !e.Raise {
+		t.Errorf("expected raise for 'full': %+v", e)
+	}
+	if e, ok := byNode["recovered"]; !ok || e.Kind != kindDisk || e.Raise {
+		t.Errorf("expected clear for 'recovered': %+v", e)
+	}
+	if _, ok := byNode["hovering"]; ok {
+		t.Error("'hovering' should not flap inside the hysteresis band")
+	}
+	if _, ok := byNode["offline-full"]; ok {
+		t.Error("offline node should not raise a disk alert from stale metrics")
+	}
+}
+
+func TestDecideDiskDisabled(t *testing.T) {
+	now := time.Now()
+	nodes := []*store.Node{{ID: "full", Name: "full", Status: store.NodeStatusEnrolled, LastMetrics: fsMetrics(99)}}
+	if evs := decide(nodes, map[string]bool{"full": true}, time.Minute, 0, now); len(evs) != 0 {
+		t.Errorf("diskPct=0 should disable low-flash alerts: %+v", evs)
 	}
 }
 
@@ -48,7 +106,7 @@ func TestDecideOnlineButStaleHeartbeat(t *testing.T) {
 	now := time.Now()
 	nodes := []*store.Node{{ID: "a", Name: "a", Status: store.NodeStatusEnrolled,
 		LastSeenAt: tp(now.Add(-time.Hour))}}
-	if evs := decide(nodes, map[string]bool{"a": true}, time.Minute, now); len(evs) != 0 {
+	if evs := decide(nodes, map[string]bool{"a": true}, time.Minute, 90, now); len(evs) != 0 {
 		t.Errorf("alerted despite live channel: %+v", evs)
 	}
 }

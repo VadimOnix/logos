@@ -46,6 +46,22 @@ func TestDeriveSample(t *testing.T) {
 	}
 }
 
+func TestRootFSUsedPct(t *testing.T) {
+	if pct, ok := RootFSUsedPct([]byte(`{"rootfs_total_kb":20000,"rootfs_free_kb":5000}`)); !ok || pct != 75 {
+		t.Errorf("pct=%v ok=%v, want 75 true", pct, ok)
+	}
+	// No rootfs size reported → unknown, not 0%.
+	if _, ok := RootFSUsedPct([]byte(`{"load1":0.1}`)); ok {
+		t.Error("missing rootfs total should yield ok=false")
+	}
+	if _, ok := RootFSUsedPct(nil); ok {
+		t.Error("nil payload should yield ok=false")
+	}
+	if _, ok := RootFSUsedPct([]byte(`not json`)); ok {
+		t.Error("unparseable payload should yield ok=false")
+	}
+}
+
 // TestDeriveSampleZeroTotals ensures divide-by-zero is avoided when a node
 // reports no memory/fs totals (fields omitted).
 func TestDeriveSampleZeroTotals(t *testing.T) {

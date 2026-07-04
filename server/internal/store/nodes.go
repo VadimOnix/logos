@@ -26,6 +26,9 @@ type Node struct {
 	// AlertedOfflineAt is set while an offline alert for the node is
 	// outstanding (F11); cleared when the node comes back.
 	AlertedOfflineAt *time.Time `json:"-"`
+	// AlertedDiskFullAt is set while a low-flash alert for the node is
+	// outstanding (F11); cleared when usage falls back below the threshold.
+	AlertedDiskFullAt *time.Time `json:"-"`
 }
 
 type NodeInfo struct {
@@ -37,13 +40,14 @@ type NodeInfo struct {
 }
 
 const nodeCols = `id, name, public_key, hostname, agent_version, os_version, arch,
-	status, enrolled_at, left_at, last_seen_at, last_metrics, alerted_offline_at`
+	status, enrolled_at, left_at, last_seen_at, last_metrics, alerted_offline_at,
+	alerted_diskfull_at`
 
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	n := &Node{}
 	err := row.Scan(&n.ID, &n.Name, &n.PublicKey, &n.Hostname, &n.AgentVersion,
 		&n.OSVersion, &n.Arch, &n.Status, &n.EnrolledAt, &n.LeftAt, &n.LastSeenAt, &n.LastMetrics,
-		&n.AlertedOfflineAt)
+		&n.AlertedOfflineAt, &n.AlertedDiskFullAt)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -127,6 +131,17 @@ func (s *Store) SetNodeOfflineAlerted(ctx context.Context, id string, alerted bo
 	q := `update nodes set alerted_offline_at = now() where id = $1`
 	if !alerted {
 		q = `update nodes set alerted_offline_at = null where id = $1`
+	}
+	_, err := s.pool.Exec(ctx, q, id)
+	return err
+}
+
+// SetNodeDiskFullAlerted records or clears the outstanding low-flash-alert
+// mark (F11), mirroring SetNodeOfflineAlerted.
+func (s *Store) SetNodeDiskFullAlerted(ctx context.Context, id string, alerted bool) error {
+	q := `update nodes set alerted_diskfull_at = now() where id = $1`
+	if !alerted {
+		q = `update nodes set alerted_diskfull_at = null where id = $1`
 	}
 	_, err := s.pool.Exec(ctx, q, id)
 	return err
