@@ -24,13 +24,24 @@ Usage:
                      [--agent-binary <path>] [--force]
   logos-adopt remove --router <host[:port]> [--user root] [--password | --key]
                      [--cleanup] [--yes]
+  logos-adopt fleet  --server <url> --api-token <token>
+                     (--csv <file> | --range <cidr>)
+                     [--user root] [--password <pw> | --key <file>]
+                     [--concurrency 4] [--agent-binary <path>] [--force]
 
 Credentials are used only for the local SSH session; they are never sent to
 the control plane. ` + "`remove --cleanup`" + ` restores the pre-adoption snapshot
 (removes packages installed since adoption, reverts UCI configuration).
 
+Fleet mode adopts many routers at once from a CSV inventory
+(router,user,password,key — only router required; blanks inherit the flag
+defaults) or an IP range, minting a fresh single-use claim code per router
+via the API token. One unreachable or incompatible device never blocks the
+rest; the process exits non-zero if any router failed.
+
 Environment:
   LOGOS_SSH_PASSWORD   SSH password (alternative to --password / prompt)
+  LOGOS_API_TOKEN      control-plane API token for fleet mode (alt. to --api-token)
 `
 
 func main() {
@@ -53,9 +64,20 @@ func main() {
 	force := fs.Bool("force", false, "adopt even if the compatibility check fails")
 	cleanup := fs.Bool("cleanup", false, "remove: also restore the pre-adoption snapshot")
 	yes := fs.Bool("yes", false, "remove: skip the cleanup confirmation")
+	csvFile := fs.String("csv", "", "fleet: CSV inventory (router,user,password,key)")
+	ipRange := fs.String("range", "", "fleet: adopt every host in an IPv4 CIDR")
+	apiToken := fs.String("api-token", os.Getenv("LOGOS_API_TOKEN"), "fleet: control-plane API token (mints a claim code per router)")
+	concurrency := fs.Int("concurrency", 4, "fleet: how many routers to adopt at once")
 
 	var err error
 	switch cmd {
+	case "fleet":
+		fs.Parse(args)
+		err = runFleet(ctx, fleetArgs{
+			server: *server, apiToken: *apiToken, csvFile: *csvFile, ipRange: *ipRange,
+			user: *user, password: *password, keyFile: *keyFile,
+			agentBinary: *agentBinary, force: *force, concurrency: *concurrency,
+		})
 	case "run", "remove":
 		fs.Parse(args)
 		if *router == "" {

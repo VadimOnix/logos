@@ -28,6 +28,12 @@ type Options struct {
 	Server string // control-plane URL
 	Code   string // claim code
 
+	// CodeFunc, when set, supplies the claim code lazily — called only once
+	// the device has passed connectivity and compatibility checks, so a
+	// fleet scan never burns a single-use code on an unreachable host.
+	// Takes precedence over Code.
+	CodeFunc func(ctx context.Context) (string, error)
+
 	AgentBinary string // local path; downloaded from the server when empty
 	Force       bool
 }
@@ -36,7 +42,7 @@ type Options struct {
 // compatibility, snapshot, install the agent, enroll. Mid-install failures
 // roll back everything that was uploaded.
 func Adopt(ctx context.Context, opts Options, out io.Writer) error {
-	if opts.Server == "" || opts.Code == "" {
+	if opts.Server == "" || (opts.Code == "" && opts.CodeFunc == nil) {
 		return fmt.Errorf("--server and --code are required")
 	}
 	if _, err := url.Parse(opts.Server); err != nil {
@@ -115,8 +121,19 @@ func Adopt(ctx context.Context, opts Options, out io.Writer) error {
 		}
 	}
 
+	// Mint/resolve the claim code now — after every check has passed — so a
+	// single-use code is never spent on a device we can't actually adopt.
+	code := opts.Code
+	if opts.CodeFunc != nil {
+		code, err = opts.CodeFunc(ctx)
+		if err != nil {
+			rollback()
+			return fmt.Errorf("obtain claim code: %w", err)
+		}
+	}
+
 	step("enrolling against %s …", opts.Server)
-	enrollOut, err := r.Run(fmt.Sprintf("%s enroll --server %q --code %q", agentPath, opts.Server, opts.Code))
+	enrollOut, err := r.Run(fmt.Sprintf("%s enroll --server %q --code %q", agentPath, opts.Server, code))
 	if err != nil {
 		rollback()
 		r.Run("rm -f /etc/logos/agent.json")
