@@ -59,10 +59,17 @@ func (s *Server) AgentHandler() http.Handler {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
+	// Liveness: the process is up and serving. Never touches the database,
+	// so an orchestrator does not restart the server for a transient DB blip.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
+
+	// Readiness: the server can actually serve requests — i.e. the database
+	// is reachable. Load balancers and `docker compose` health checks should
+	// gate traffic on this, not /healthz.
+	mux.HandleFunc("GET /readyz", readyHandler(s.store))
 
 	// Auth
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
@@ -122,11 +129,33 @@ func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
-		if r.URL.Path == "/healthz" {
-			return
+		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
+			return // health probes are noisy; skip them
 		}
 		s.log.Debug("http", "method", r.Method, "path", r.URL.Path, "dur", time.Since(start).Round(time.Millisecond))
 	})
+}
+
+// pinger is the readiness dependency: anything whose reachability gates
+// whether the server can serve requests (the database, in practice).
+type pinger interface {
+	Ping(ctx context.Context) error
+}
+
+// readyHandler reports 200 when the dependency is reachable within a short
+// bound, else 503 — so load balancers gate traffic on real readiness.
+func readyHandler(p pinger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if err := p.Ping(ctx); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			w.Write([]byte("database unavailable"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ready"))
+	}
 }
 
 // currentUser resolves the request's user from the session cookie or an
