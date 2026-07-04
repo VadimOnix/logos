@@ -86,6 +86,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/claim-codes", s.requireUser(s.handleCreateClaimCode))
 	mux.Handle("DELETE /api/v1/claim-codes/{id}", s.requireUser(s.handleDeleteClaimCode))
 
+	// Fleet summary
+	mux.Handle("GET /api/v1/stats", s.requireUser(s.handleStats))
+
 	// Nodes
 	mux.Handle("GET /api/v1/nodes", s.requireUser(s.handleListNodes))
 	mux.Handle("GET /api/v1/nodes/{id}", s.requireUser(s.handleGetNode))
