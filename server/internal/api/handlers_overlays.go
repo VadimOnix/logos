@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"strconv"
@@ -65,6 +66,16 @@ func (s *Server) handleCreateOverlay(w http.ResponseWriter, r *http.Request, _ *
 	prefix, err := overlay.ParseCIDR(strings.TrimSpace(req.CIDR))
 	if err != nil {
 		httpError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	existing, err := s.store.ListOverlays(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if clash := overlay.FindOverlap(prefix, existing); clash != nil {
+		httpError(w, http.StatusConflict,
+			fmt.Sprintf("%s overlaps overlay %q (%s) — overlapping overlays would route ambiguously", prefix, clash.Name, clash.CIDR))
 		return
 	}
 	o, err := s.store.CreateOverlay(r.Context(), req.Name, prefix.String())

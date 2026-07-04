@@ -62,6 +62,20 @@ func ParseCIDR(s string) (netip.Prefix, error) {
 	return p, nil
 }
 
+// FindOverlap returns the first existing overlay whose CIDR shares addresses
+// with prefix (PRD §5.2 "overlap detection"): a node joined to two
+// overlapping overlays would get ambiguous routes, so creation is refused
+// up front. Stored CIDRs that fail to parse are skipped — they were
+// validated on the way in, and a scan should not break on one bad row.
+func FindOverlap(prefix netip.Prefix, existing []*store.Overlay) *store.Overlay {
+	for _, o := range existing {
+		if p, err := netip.ParsePrefix(o.CIDR); err == nil && p.Overlaps(prefix) {
+			return o
+		}
+	}
+	return nil
+}
+
 // NextFreeIP allocates the lowest unused host address in the overlay,
 // skipping the network and broadcast addresses.
 func NextFreeIP(prefix netip.Prefix, used []string) (netip.Addr, error) {
