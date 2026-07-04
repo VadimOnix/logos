@@ -42,7 +42,13 @@ enroll into and stay connected to. Everything later builds on this channel.
 
 - ✅ F12: `logos-adopt` CLI — drives the router locally over SSH (credentials never leave the operator's machine): compatibility check (OpenWrt, arch incl. MIPS endianness, RAM/flash), **pre-adoption snapshot** (package list + `uci export`) stored on the device, agent binary fetched from the control plane (`/api/v1/agent-binary/{arch}`, `LOGOS_AGENT_BINARIES_DIR`) or a local file, procd service install, enroll, fail-safe rollback of everything uploaded on mid-install failure.
 - ✅ F13 (full): `logos-agent leave --cleanup` / `logos-adopt remove --cleanup` — removes packages added since adoption (diff vs snapshot, per-item confirm/skip semantics via plan + `--yes`), reverts UCI to the snapshot, wipes identity; works without headend connectivity.
-- ⬜ F12: fleet adoption (CSV/IP-range) — v1 per PRD.
+- ✅ F12: fleet adoption — `logos-adopt fleet` adopts many routers at once
+  from a CSV inventory (`router,user,password,key`; blanks inherit the flag
+  defaults) or an IPv4 `--range`, with bounded `--concurrency`. Each router
+  gets its own fresh single-use claim code, minted lazily via an API token
+  **only after it passes its checks**, so a scan never burns codes on
+  unreachable hosts. One failure never blocks the rest; the process exits
+  non-zero if any router failed.
 - ⬜ File checksums in the snapshot (config-file-level conflict detection).
 - ✅ F2 (full): first-run local setup page — an unenrolled agent serves
   `http://<router>:8484` (any other path redirects there, so captive-portal

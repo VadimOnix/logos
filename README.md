@@ -27,6 +27,15 @@ The tool checks compatibility, takes a **pre-adoption snapshot**, installs
 the agent, and enrolls the node — it appears in the panel as *online* with
 live metrics. Manual enrollment also works (`logos-agent enroll … && logos-agent run`).
 
+Adopt a whole fleet at once from a CSV inventory or an IP range (a fresh
+single-use claim code is minted per router via an API token, only for hosts
+that pass their checks):
+
+```sh
+logos-adopt fleet --server http://<control-plane-host>:8080 \
+  --api-token <token> --csv routers.csv --concurrency 8
+```
+
 Leaving is just as easy and never requires the control plane to be
 reachable:
 
