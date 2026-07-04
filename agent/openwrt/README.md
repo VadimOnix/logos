@@ -52,16 +52,14 @@ Only ~0.1 MB is the agent's own code, so dependency trimming cannot close
 the gap.
 
 The `agent-openwrt` CI job reports raw / gzip / `upx --lzma` sizes for every
-target on each PR, so the real on-flash number is always visible. The two
-paths that can actually meet a sub-2 MB target are:
+target on each PR, so the real on-flash number is always visible. TinyGo — the one toolchain that could
+approach a sub-2 MB target — is not viable: the agent relies on `net/http`,
+`crypto/tls`, and `html/template`, which TinyGo does not fully support.
 
-- **`upx --lzma`** on the shipped binary (self-extracting, ~1.3–2 MB on
-  flash) — costs a one-time decompress into RAM at start, which matters on
-  4/32 MB devices but not on the 8/64 MB class this MVP targets.
-- **TinyGo** — not currently viable: the agent relies on `net/http`,
-  `crypto/tls`, and `html/template`, which TinyGo does not fully support.
-
-Whether to pack the shipped image with UPX, or to revise the PRD budget to
-the measured ~1.5–2 MB compressed reality, is a product decision tracked at
-the end of the MVP roadmap; treat the 1 MB figure as an aspiration, not a
-guarantee.
+**Resolution.** The ≤1 MB target was retired as the wrong constraint (the
+agent runs comfortably on the 16 MB-flash devices the MVP targets), and the
+PRD §6 Footprint budget was revised to the measured ~2.5 MB compressed
+reality. For flash-constrained builds, `logos-imagebuilder --compress` packs
+the agent with `upx --lzma` into a self-extracting ~2.3 MB binary (one-time
+RAM decompress at start); it is **off by default**, so the shipped binary is
+unchanged unless you ask for it.

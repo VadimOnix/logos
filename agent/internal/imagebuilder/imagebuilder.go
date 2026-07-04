@@ -36,10 +36,20 @@ type Config struct {
 	OutputDir string
 	WorkDir   string // where the Image Builder is unpacked (kept for reuse)
 
+	// Compress runs `upx --lzma` on the staged agent binary before it is
+	// baked into the image, roughly quartering its flash footprint at the
+	// cost of a one-time RAM decompress at startup. Opt-in: a full-feature
+	// Go agent cannot meet the ≤1 MB PRD budget uncompressed (see
+	// agent/openwrt/README.md), so operators on flash-constrained devices
+	// can trade RAM for flash here. Off by default — no runtime change.
+	Compress bool
+
 	// DownloadBase overrides https://downloads.openwrt.org (tests, mirrors).
 	DownloadBase string
 	// Make overrides the make binary (tests).
 	Make string
+	// UPX overrides the upx binary (tests); defaults to "upx" on PATH.
+	UPX string
 
 	Out io.Writer // progress messages; defaults to os.Stderr
 }
@@ -219,6 +229,11 @@ func StageFiles(filesDir string, cfg *Config) error {
 			return err
 		}
 	}
+	if cfg.Compress {
+		if err := packBinary(cfg, filepath.Join(filesDir, "usr/bin/logos-agent")); err != nil {
+			return err
+		}
+	}
 	// FILES overlays bypass the package system, so enable the service the
 	// way opkg would: an rc.d start symlink (START=95 in the init script).
 	rcd := filepath.Join(filesDir, "etc/rc.d")
@@ -226,6 +241,27 @@ func StageFiles(filesDir string, cfg *Config) error {
 		return err
 	}
 	return os.Symlink("../init.d/logos-agent", filepath.Join(rcd, "S95logos-agent"))
+}
+
+// packBinary compresses the staged agent binary in place with `upx --lzma`.
+// The result is a self-extracting executable, so OpenWrt runs it unchanged.
+func packBinary(cfg *Config, path string) error {
+	upx := cfg.UPX
+	if upx == "" {
+		upx = "upx"
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cfg.out(), "compressing agent binary with %s --lzma\n", upx)
+	if out, err := exec.Command(upx, "--best", "--lzma", "-q", path).CombinedOutput(); err != nil {
+		return fmt.Errorf("compress agent binary (is upx installed?): %v: %s", err, strings.TrimSpace(string(out)))
+	}
+	if after, err := os.Stat(path); err == nil {
+		fmt.Fprintf(cfg.out(), "agent binary: %d -> %d bytes\n", before.Size(), after.Size())
+	}
+	return nil
 }
 
 func runMake(ctx context.Context, cfg *Config, ibDir, filesDir string) error {

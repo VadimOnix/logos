@@ -171,7 +171,7 @@ Acceptance criteria:
 
 | # | Requirement | Priority |
 |---|---|---|
-| F1 | `logos-agent` for OpenWrt 23.05/24.10: outbound persistent channel (WebSocket/gRPC over TLS 443), survives reboots/reconnects, < 1 MB installed | Must |
+| F1 | `logos-agent` for OpenWrt 23.05/24.10: outbound persistent channel (WebSocket/gRPC over TLS 443), survives reboots/reconnects; single static binary, ~2.5 MB compressed on flash (see §6 Footprint) | Must |
 | F2 | Enrollment: claim-code flow + first-run local setup page (captive redirect) | Must |
 | F3 | Control plane: device registry, node detail page, online/offline state | Must |
 | F4 | Config push: UCI get/set/commit with versioning and rollback | Must |
@@ -220,7 +220,7 @@ Acceptance criteria:
 | Area | Requirement |
 |---|---|
 | **Security** | mTLS for agent↔server with per-node certs and rotation; enrollment codes single-use and expiring; signed agent/firmware artifacts; control plane never stores user LAN traffic; secrets encrypted at rest; rate-limited brute-force-proof enrollment endpoint; security disclosure policy. |
-| **Footprint** | Agent ≤ 1 MB flash, ≤ 10 MB RSS idle; must run on 16 MB-flash/128 MB-RAM devices. Written in Go (single static binary, like Tailscale's OpenWrt approach) or Rust; no Python on the node. |
+| **Footprint** | Agent: single static Go binary, ≤ 10 MB RSS idle; must run on 16 MB-flash/128 MB-RAM devices. Flash: ~3.4 MB as an ipk (~9.8 MB uncompressed), or ~2.3 MB self-extracting with opt-in `upx --lzma` packing (`logos-imagebuilder --compress`) — comfortable on 16 MB flash. **Revised (2026-07):** the original ≤ 1 MB flash target proved structurally unreachable for a full-feature Go agent — the Go runtime + mandatory stdlib crypto/TLS + `net/http` dominate and only ~0.1 MB is our own code; see `agent/openwrt/README.md`. No Python on the node. |
 | **Resilience** | Node keeps routing if control plane is unreachable (control plane is *not* in the data path except relays); agent retries with backoff + jitter; config changes are atomic with auto-revert if the node loses connectivity after apply (like `uci` rollback / "safe mode"). |
 | **Scale** | Single control-plane instance: 10k nodes; horizontal scaling for cloud. Heartbeat interval adaptive to fleet size. |
 | **Privacy** | Self-hosted = zero phone-home (opt-in anonymous telemetry only). Cloud: metrics/config metadata only, documented data inventory, EU region option. |
