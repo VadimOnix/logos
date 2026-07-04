@@ -33,10 +33,50 @@ type agentConn struct {
 	pendingMu sync.Mutex
 	pending   map[string]chan agentMsg
 	nextID    uint64
+
+	termMu sync.Mutex
+	terms  map[string]chan agentMsg // term ID → bridge inbox (F10)
 }
 
 func newAgentConn(ws *websocket.Conn, nodeID string) *agentConn {
-	return &agentConn{ws: ws, nodeID: nodeID, pending: make(map[string]chan agentMsg)}
+	return &agentConn{ws: ws, nodeID: nodeID,
+		pending: make(map[string]chan agentMsg), terms: make(map[string]chan agentMsg)}
+}
+
+// openTermRoute registers a terminal inbox; agent term messages with this ID
+// are delivered to the returned channel until closeTermRoute.
+func (c *agentConn) openTermRoute(id string) chan agentMsg {
+	ch := make(chan agentMsg, 256)
+	c.termMu.Lock()
+	c.terms[id] = ch
+	c.termMu.Unlock()
+	return ch
+}
+
+func (c *agentConn) closeTermRoute(id string) {
+	c.termMu.Lock()
+	ch := c.terms[id]
+	delete(c.terms, id)
+	c.termMu.Unlock()
+	if ch != nil {
+		close(ch)
+	}
+}
+
+// routeTerm delivers an agent-sent terminal message to its bridge. Data is
+// dropped if the bridge cannot keep up — a stuck browser must not block the
+// shared channel reader.
+func (c *agentConn) routeTerm(msg agentMsg) {
+	c.termMu.Lock()
+	ch := c.terms[msg.TermID]
+	c.termMu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- msg:
+	default:
+	}
 }
 
 func (c *agentConn) write(ctx context.Context, msg agentMsg) error {
@@ -75,6 +115,14 @@ func (c *agentConn) Close() {
 		delete(c.pending, id)
 	}
 	c.pendingMu.Unlock()
+
+	// End every terminal bridge.
+	c.termMu.Lock()
+	for id, ch := range c.terms {
+		close(ch)
+		delete(c.terms, id)
+	}
+	c.termMu.Unlock()
 }
 
 // Call sends an RPC to the agent and waits for the matching rpc_result.
@@ -211,6 +259,8 @@ func (s *Server) serveAgentWS(w http.ResponseWriter, r *http.Request, node *stor
 			err = s.store.TouchNode(ctx, node.ID, msg.Metrics)
 		case msgRPCResult:
 			conn.resolve(msg)
+		case msgTermData, msgTermClose:
+			conn.routeTerm(msg)
 		default:
 			s.log.Warn("agent sent unknown message type", "node", node.ID, "type", msg.Type)
 		}

@@ -77,7 +77,12 @@ enroll into and stay connected to. Everything later builds on this channel.
   and/or SMTP recipients on offline **and recovery**; alert state persists in
   the registry, so restarts neither repeat nor lose alerts.
 - ⬜ F6: metric history (short retention).
-- ⬜ F10: remote terminal via the management channel (audited).
+- ✅ F10: remote terminal — an interactive shell multiplexed over the
+  management channel (`term_open`/`term_data`/`term_close`). The agent runs
+  the system shell in a pty (bounded to 2 concurrent sessions, 30-min idle
+  reaper, all sessions die with the channel); the control plane bridges a
+  browser WebSocket to it and records an audit row (who/when/why-ended,
+  content not stored). Panel has a built-in terminal (no external JS).
 
 ## Cross-cutting rules (from PRD §6–7, enforced from M0)
 

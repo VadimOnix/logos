@@ -87,3 +87,12 @@ func (h *Hub) OnlineCount() int {
 	defer h.mu.RUnlock()
 	return len(h.conns)
 }
+
+// AgentConn returns the live connection for a node, or nil when offline.
+// Used by features that ride the channel directly (F10 remote terminal)
+// rather than through the request/response Call path.
+func (h *Hub) AgentConn(nodeID string) AgentConn {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.conns[nodeID]
+}

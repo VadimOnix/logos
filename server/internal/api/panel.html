@@ -77,6 +77,7 @@
       <button id="load-packages">Packages</button>
       <button id="load-config">UCI config</button>
       <button id="load-changes">Change history</button>
+      <button id="open-terminal">Terminal</button>
       <input id="pkg-name" placeholder="package name" style="width:160px">
       <button id="pkg-install">Install</button>
       <button id="pkg-remove" class="danger">Remove</button>
@@ -94,6 +95,13 @@
       </div>
     </details>
     <pre id="detail-out" style="max-height:400px;overflow:auto;font-size:12px;border:1px solid var(--line);border-radius:6px;padding:10px;white-space:pre-wrap"></pre>
+    <div id="terminal" hidden style="margin-top:8px">
+      <div class="row" style="justify-content:space-between">
+        <span class="muted">Remote shell over the management channel — audited. Esc-heavy TUIs are limited.</span>
+        <button id="term-close" class="danger">Close terminal</button>
+      </div>
+      <pre id="term-screen" tabindex="0" style="height:340px;overflow:auto;margin-top:6px;background:#0b0e11;color:#d6dee6;font:12px/1.4 ui-monospace,monospace;border:1px solid var(--line);border-radius:6px;padding:10px;white-space:pre-wrap;outline:none"></pre>
+    </div>
   </section>
 </main>
 
@@ -199,6 +207,7 @@ $('logout').onclick = async () => { await api('/api/v1/auth/logout', { method: '
 let selected = null;
 
 function selectNode(n) {
+  if (selected && n.id !== selected.id) closeTerminal();
   selected = n;
   $('detail').hidden = false;
   $('detail-title').textContent = `Node: ${n.name} (${n.status})`;
@@ -423,6 +432,73 @@ $('ov-create').onclick = async () => {
     refreshOverlays();
   } catch (e) { alert(e.message); }
 };
+
+// Remote terminal (F10)
+let termSocket = null;
+const termDecoder = new TextDecoder();
+
+function closeTerminal() {
+  if (termSocket) { termSocket.close(); termSocket = null; }
+  $('terminal').hidden = true;
+}
+
+$('open-terminal').onclick = () => {
+  if (!selected) return;
+  if (selected.status !== 'enrolled') { alert('Node is not connected.'); return; }
+  closeTerminal();
+  const screen = $('term-screen');
+  screen.textContent = '';
+  $('terminal').hidden = false;
+  $('detail-out').textContent = 'Terminal session — see below.';
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/api/v1/nodes/${selected.id}/terminal/ws`);
+  ws.binaryType = 'arraybuffer';
+  termSocket = ws;
+
+  ws.onmessage = (e) => {
+    screen.textContent += termDecoder.decode(e.data);
+    screen.scrollTop = screen.scrollHeight;
+  };
+  ws.onopen = () => {
+    screen.focus();
+    sendResize();
+  };
+  ws.onclose = () => {
+    screen.textContent += '\n[session closed]\n';
+    if (termSocket === ws) termSocket = null;
+  };
+
+  function sendResize() {
+    // ~8px per column, ~17px per row for the current font.
+    const cols = Math.max(20, Math.floor(screen.clientWidth / 8));
+    const rows = Math.max(6, Math.floor(screen.clientHeight / 17));
+    if (ws.readyState === 1) ws.send(JSON.stringify({ resize: [cols, rows] }));
+  }
+  window.addEventListener('resize', sendResize);
+
+  screen.onkeydown = (ev) => {
+    if (ws.readyState !== 1) return;
+    let data = '';
+    if (ev.key === 'Enter') data = '\r';
+    else if (ev.key === 'Backspace') data = '\x7f';
+    else if (ev.key === 'Tab') data = '\t';
+    else if (ev.key === 'Escape') data = '\x1b';
+    else if (ev.key === 'ArrowUp') data = '\x1b[A';
+    else if (ev.key === 'ArrowDown') data = '\x1b[B';
+    else if (ev.key === 'ArrowRight') data = '\x1b[C';
+    else if (ev.key === 'ArrowLeft') data = '\x1b[D';
+    else if (ev.ctrlKey && ev.key.length === 1) {
+      const c = ev.key.toLowerCase().charCodeAt(0) - 96;
+      if (c >= 1 && c <= 26) data = String.fromCharCode(c);
+    } else if (ev.key.length === 1) data = ev.key;
+    else return;
+    ev.preventDefault();
+    ws.send(new TextEncoder().encode(data));
+  };
+};
+
+$('term-close').onclick = closeTerminal;
 
 $('new-code').onclick = async () => {
   const c = await api('/api/v1/claim-codes', { method: 'POST', body: JSON.stringify({}) }).catch(e => { alert(e.message); return null; });
