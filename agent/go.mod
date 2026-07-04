@@ -1,11 +1,11 @@
 module github.com/VadimOnix/logos/agent
 
-go 1.24
+go 1.24.0
 
 require (
 	github.com/coder/websocket v1.8.13
-	golang.org/x/crypto v0.39.0
-	golang.org/x/term v0.32.0
+	golang.org/x/crypto v0.45.0
+	golang.org/x/term v0.37.0
 )
 
-require golang.org/x/sys v0.33.0 // indirect
+require golang.org/x/sys v0.38.0 // indirect
