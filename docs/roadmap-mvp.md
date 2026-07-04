@@ -44,7 +44,12 @@ enroll into and stay connected to. Everything later builds on this channel.
 - ✅ F13 (full): `logos-agent leave --cleanup` / `logos-adopt remove --cleanup` — removes packages added since adoption (diff vs snapshot, per-item confirm/skip semantics via plan + `--yes`), reverts UCI to the snapshot, wipes identity; works without headend connectivity.
 - ⬜ F12: fleet adoption (CSV/IP-range) — v1 per PRD.
 - ⬜ File checksums in the snapshot (config-file-level conflict detection).
-- ⬜ F2 (full): first-run local setup page with captive redirect for pre-flashed devices.
+- ✅ F2 (full): first-run local setup page — an unenrolled agent serves
+  `http://<router>:8484` (any other path redirects there, so captive-portal
+  probes land on it) with a claim-code form; enrollment closes the portal and
+  opens the management channel, and a node that later *leaves* falls back to
+  the portal. The procd service now starts in both states. DNS-hijack-based
+  captive redirect is left to the image builder (F14).
 - ⬜ F14: `logos-imagebuilder` wrapper (bake agent + headend + enrollment key into a sysupgrade image).
 
 ### M3 — Operate a small fleet (in progress)
