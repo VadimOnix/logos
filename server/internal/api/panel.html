@@ -27,6 +27,9 @@
   code.claim { font-size: 17px; padding: 4px 8px; border: 1px dashed var(--line); border-radius: 6px; user-select: all; }
   .error { color: var(--bad); font-size: 13px; min-height: 1em; }
   header { display: flex; justify-content: space-between; align-items: baseline; }
+  .pill { display: inline-block; padding: 2px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 12px; color: var(--muted); }
+  .pill.ok { color: var(--ok); border-color: var(--ok); }
+  .pill.alert { color: var(--bad); border-color: var(--bad); font-weight: 600; }
 </style>
 
 <header>
@@ -52,6 +55,7 @@
   </div>
 
   <h2>Nodes</h2>
+  <div id="stats" class="row" style="margin-bottom:10px" hidden></div>
   <table>
     <thead><tr><th>Name</th><th>Status</th><th>Host</th><th>Agent</th><th>OS / arch</th><th>Load</th><th>Mem</th><th>Clients</th><th>Last seen</th><th></th></tr></thead>
     <tbody id="nodes"></tbody>
@@ -141,6 +145,31 @@ function fmtMem(m) {
 
 let allNodes = [];
 
+// Fleet summary strip: one /api/v1/stats call instead of counting client-side;
+// alert badges light up while an F11 alert is outstanding.
+async function refreshStats() {
+  if ($('app').hidden) return;
+  const s = await api('/api/v1/stats').catch(() => null);
+  if (!s) return;
+  const pill = (text, cls) => {
+    const el = document.createElement('span');
+    el.className = 'pill' + (cls ? ' ' + cls : '');
+    el.textContent = text;
+    return el;
+  };
+  const items = [
+    pill(`${s.nodes.total} node${s.nodes.total === 1 ? '' : 's'}`),
+    pill(`${s.nodes.online} online`, s.nodes.online ? 'ok' : ''),
+    pill(`${s.nodes.offline} offline`),
+  ];
+  if (s.nodes.left) items.push(pill(`${s.nodes.left} left`));
+  items.push(pill(`${s.overlays} overlay${s.overlays === 1 ? '' : 's'}`));
+  if (s.alerts.offline) items.push(pill(`⚠ ${s.alerts.offline} offline alert${s.alerts.offline === 1 ? '' : 's'}`, 'alert'));
+  if (s.alerts.disk_full) items.push(pill(`⚠ ${s.alerts.disk_full} low flash`, 'alert'));
+  $('stats').hidden = false;
+  $('stats').replaceChildren(...items);
+}
+
 async function refreshNodes() {
   if ($('app').hidden) return;
   const nodes = await api('/api/v1/nodes').catch(() => null);
@@ -199,7 +228,7 @@ $('login').onsubmit = async (e) => {
     const me = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
     $('me-email').textContent = me.email;
     show(true);
-    refreshNodes().then(refreshOverlays);
+    refreshNodes().then(refreshOverlays).then(refreshStats);
   } catch (err) { $('login-error').textContent = err.message; }
 };
 
@@ -571,9 +600,10 @@ $('new-code').onclick = async () => {
     const me = await api('/api/v1/me');
     $('me-email').textContent = me.email;
     show(true);
-    refreshNodes().then(refreshOverlays);
+    refreshNodes().then(refreshOverlays).then(refreshStats);
   } catch { show(false); }
   setInterval(refreshNodes, 5000);
   setInterval(refreshOverlays, 7000);
+  setInterval(refreshStats, 7000);
 })();
 </script>
