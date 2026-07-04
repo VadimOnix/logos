@@ -75,6 +75,12 @@ inbound port or public IP — the agent only dials **out**.
 4. Open firewall ports **80** and **443** (Caddy) and **8443** (agent
    channel). Port 8080 stays on loopback and never needs to be public.
 
+The server exposes two probes for load balancers and orchestrators:
+`GET /healthz` (liveness — the process is up, never touches the database)
+and `GET /readyz` (readiness — returns `503` while Postgres is unreachable,
+so traffic is only routed once the instance can actually serve). The compose
+file health-checks the server on `/readyz`.
+
 The panel is now at `https://logos.example.com`, and agents dial
 `wss://logos.example.com:8443` automatically. Adopt routers against the
 HTTPS URL:

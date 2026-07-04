@@ -41,6 +41,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      # /readyz returns 503 (non-zero exit for wget) while the DB is
+      # unreachable, so the container is marked healthy only when it can serve.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   db:
     image: postgres:16-alpine

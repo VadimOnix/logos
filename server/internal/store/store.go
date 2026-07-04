@@ -51,6 +51,9 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 
 func (s *Store) Close() { s.pool.Close() }
 
+// Ping verifies database connectivity for readiness checks.
+func (s *Store) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
+
 // Migrate applies embedded SQL migrations that have not been applied yet.
 func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := s.pool.Exec(ctx,
