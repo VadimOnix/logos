@@ -62,6 +62,42 @@ func TestStageFiles(t *testing.T) {
 	}
 }
 
+// TestStageFilesCompress verifies the opt-in --compress path invokes upx on
+// the staged binary (stubbed here so the test needs no real upx).
+func TestStageFilesCompress(t *testing.T) {
+	dir := t.TempDir()
+	agentBin := filepath.Join(dir, "agent.bin")
+	os.WriteFile(agentBin, []byte("original-uncompressed-binary"), 0o644)
+
+	// Fake upx: records its args and shrinks the target file in place.
+	upx := filepath.Join(dir, "fake-upx")
+	os.WriteFile(upx, []byte("#!/bin/sh\necho \"$@\" >> \""+dir+"/upx.log\"\nfor a in \"$@\"; do last=\"$a\"; done\nprintf packed > \"$last\"\n"), 0o755)
+
+	filesDir := filepath.Join(dir, "files")
+	cfg := &Config{AgentBinary: agentBin, Compress: true, UPX: upx}
+	if err := StageFiles(filesDir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	bin, err := os.ReadFile(filepath.Join(filesDir, "usr/bin/logos-agent"))
+	if err != nil || string(bin) != "packed" {
+		t.Errorf("binary not packed in place: %q, %v", bin, err)
+	}
+	log, _ := os.ReadFile(filepath.Join(dir, "upx.log"))
+	if !strings.Contains(string(log), "--lzma") {
+		t.Errorf("upx not called with --lzma: %s", log)
+	}
+
+	// Default (Compress=false) must leave the binary untouched.
+	filesDir2 := filepath.Join(dir, "files2")
+	if err := StageFiles(filesDir2, &Config{AgentBinary: agentBin}); err != nil {
+		t.Fatal(err)
+	}
+	bin2, _ := os.ReadFile(filepath.Join(filesDir2, "usr/bin/logos-agent"))
+	if string(bin2) != "original-uncompressed-binary" {
+		t.Errorf("binary altered without --compress: %q", bin2)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	ok := Config{Release: "24.10.1", Target: "ath79/generic", Profile: "p", AgentBinary: "a"}
 	if err := ok.validate(); err != nil {

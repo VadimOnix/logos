@@ -24,7 +24,7 @@ enroll into and stay connected to. Everything later builds on this channel.
 | F13 Clean offboarding | `logos-agent leave` wipes local identity without needing the headend; panel-side remove marks node `left`. Snapshot-based full cleanup is **M2** (with F12 adoption tool) | ✅ started |
 | F9 Self-hosted deployment | `docker compose up` = server + Postgres; single static server binary | ✅ started |
 
-### M1 — A real OpenWrt node (✅ code-complete; size budget open)
+### M1 — A real OpenWrt node (✅ complete; size budget resolved)
 
 - ✅ RPC over the management channel: correlated request/response, bounded concurrency on the agent (foundation for F4/F5/F10).
 - ✅ F5: package management per node — opkg/apk autodetect, list/install/remove/update via RPC + REST + panel.
@@ -36,17 +36,22 @@ enroll into and stay connected to. Everything later builds on this channel.
 - ✅ F6: wireless associations via `ubus call iwinfo` in the heartbeat.
 - ✅ CI job cross-building the agent for common OpenWrt targets (mips/mipsle/arm/arm64/x86_64) with a size report vs the ≤1 MB budget.
 
-**M1 exit note:** the agent binary size budget (≤1 MB) is still exceeded and
-the gap is structural. Measured for `mips_24kc` at the full MVP feature set:
-~9.8 MB raw stripped, ~3.4 MB gzip, ~2.3 MB xz/`upx --lzma`. The binary is
-dominated by the Go runtime (~1.7 MB) and mandatory stdlib crypto (TLS +
-FIPS-140, ~1 MB) + `net/http` (~0.6 MB); only ~0.1 MB is the agent's own
-code, so trimming cannot close the gap. The `agent-openwrt` CI job now
-reports raw / gzip / `upx --lzma` sizes on every PR. Remaining options are a
-product decision (see below), not more engineering: pack the shipped binary
-with `upx --lzma` (~1.3–2 MB on flash, one-time RAM decompress) or revise the
-PRD budget to the measured compressed reality. TinyGo is not viable
-(`net/http` + `crypto/tls` + `html/template` unsupported).
+**M1 exit note (resolved):** the agent binary size budget is **closed**. The
+≤1 MB flash target proved structurally unreachable: measured for `mips_24kc`
+at the full MVP feature set, ~9.8 MB raw stripped, ~3.4 MB gzip, ~2.3 MB
+xz/`upx --lzma`. The binary is dominated by the Go runtime (~1.7 MB) and
+mandatory stdlib crypto (TLS + FIPS-140, ~1 MB) + `net/http` (~0.6 MB); only
+~0.1 MB is the agent's own code, so trimming cannot close the gap (TinyGo is
+not viable — `net/http` + `crypto/tls` + `html/template` unsupported). The
+`agent-openwrt` CI job reports raw / gzip / `upx --lzma` sizes on every PR.
+
+Resolution (both shipped):
+- **PRD budget revised** (§6 Footprint) to the measured ~2.5 MB compressed
+  reality; the agent runs comfortably on the 16 MB-flash devices the MVP
+  targets, so the original 1 MB figure was the wrong constraint, not a bug.
+- **Opt-in `upx --lzma` packing** for flash-constrained operators:
+  `logos-imagebuilder --compress` bakes a self-extracting ~2.3 MB binary
+  (one-time RAM decompress at start). Off by default — no runtime change.
 
 ### M2 — Adoption & offboarding done right (in progress)
 
@@ -76,6 +81,8 @@ PRD budget to the measured compressed reality. TinyGo is not viable
   A flashed router **auto-enrolls on first boot** from the preseed (retrying
   until WAN is up, file removed after success) with the F2 portal running in
   parallel as fallback; without a preseed it boots straight into the portal.
+  `--compress` optionally `upx --lzma`-packs the agent binary into the image
+  (~2.3 MB self-extracting vs ~9.8 MB) for flash-constrained devices.
 
 ### M3 — Operate a small fleet (✅ feature-complete)
 

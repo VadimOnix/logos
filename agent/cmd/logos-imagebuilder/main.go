@@ -28,6 +28,9 @@ Usage:
 With --server/--code the flashed router enrolls itself on first boot
 (the claim code is single-use — mint one per image). Without them it
 boots into the local setup portal (http://<router>:8484).
+
+--compress upx-packs the agent binary for a smaller flash footprint
+(~2.3 MB vs ~9.8 MB); the router pays a one-time RAM decompress at start.
 `
 
 func main() {
@@ -45,6 +48,7 @@ func main() {
 	fs.StringVar(&cfg.Server, "server", "", "control plane URL to pre-seed for first-boot auto-enrollment")
 	fs.StringVar(&cfg.Code, "code", "", "claim code to pre-seed (single-use; mint one per image)")
 	packages := fs.String("packages", "", "extra packages, space-separated (e.g. \"wireguard-tools\")")
+	fs.BoolVar(&cfg.Compress, "compress", false, "upx --lzma-pack the agent binary (smaller flash, one-time RAM decompress at start; needs upx)")
 	fs.StringVar(&cfg.OutputDir, "output", ".", "where to put the built images")
 	fs.StringVar(&cfg.WorkDir, "workdir", "", "Image Builder cache directory (default: $TMPDIR/logos-imagebuilder)")
 	fs.StringVar(&cfg.DownloadBase, "download-base", "", "mirror base URL (default: https://downloads.openwrt.org)")
