@@ -25,22 +25,24 @@ type Server struct {
 	hub   *hub.Hub
 	log   *slog.Logger
 
-	ca            *ca.CA
-	agentEndpoint string // public wss:// URL of the mTLS agent listener
+	ca               *ca.CA
+	agentEndpoint    string // public wss:// URL of the mTLS agent listener
+	agentBinariesDir string // agent binaries for the adoption tool ("" = off)
 
 	enrollLimiter *rateLimiter
 	loginLimiter  *rateLimiter
 }
 
-func NewServer(st *store.Store, h *hub.Hub, log *slog.Logger, authority *ca.CA, agentEndpoint string) *Server {
+func NewServer(st *store.Store, h *hub.Hub, log *slog.Logger, authority *ca.CA, agentEndpoint, agentBinariesDir string) *Server {
 	return &Server{
-		store:         st,
-		hub:           h,
-		log:           log,
-		ca:            authority,
-		agentEndpoint: agentEndpoint,
-		enrollLimiter: newRateLimiter(0.2, 10), // ~12/min sustained per IP
-		loginLimiter:  newRateLimiter(0.2, 10),
+		store:            st,
+		hub:              h,
+		log:              log,
+		ca:               authority,
+		agentEndpoint:    agentEndpoint,
+		agentBinariesDir: agentBinariesDir,
+		enrollLimiter:    newRateLimiter(0.2, 10), // ~12/min sustained per IP
+		loginLimiter:     newRateLimiter(0.2, 10),
 	}
 }
 
@@ -93,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/enroll", s.handleEnroll)
 	mux.HandleFunc("POST /api/v1/agent/leave", s.handleAgentLeave)
 	mux.HandleFunc("GET /api/v1/agent/ws", s.handleAgentWS)
+	mux.HandleFunc("GET /api/v1/agent-binary/{goarch}", s.handleAgentBinary)
 
 	// Built-in panel
 	mux.HandleFunc("GET /", s.handlePanel)

@@ -1,11 +1,14 @@
 GO ?= go
 BIN := bin
 
-.PHONY: all build server agent test vet fmt clean
+.PHONY: all build server agent adopt test vet fmt clean
 
 all: build
 
-build: server agent
+build: server agent adopt
+
+adopt:
+	CGO_ENABLED=0 $(GO) build -ldflags "-s -w" -o $(BIN)/logos-adopt ./agent/cmd/logos-adopt
 
 server:
 	$(GO) build -o $(BIN)/logos-server ./server/cmd/logos-server

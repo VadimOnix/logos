@@ -38,12 +38,14 @@ enroll into and stay connected to. Everything later builds on this channel.
 
 **M1 exit note:** the agent binary size budget (≤1 MB) is still exceeded (~4–5 MB stripped Go); tracked in agent/openwrt/README.md — candidates: upx, TinyGo, or revising the PRD budget to ~2 MB compressed.
 
-### M2 — Adoption & offboarding done right
+### M2 — Adoption & offboarding done right (in progress)
 
-- F12: adoption tool (one-line script / CLI): local SSH/ubus install, **pre-adoption snapshot** (package list + `uci export` + checksums), enroll; credentials never leave the operator's machine.
-- F13 (full): disconnect **+ optional cleanup** — remove platform-installed packages, revert to snapshot, conflict confirm/skip.
-- F2 (full): first-run local setup page with captive redirect for pre-flashed devices.
-- F14: `logos-imagebuilder` wrapper (bake agent + headend + enrollment key into a sysupgrade image).
+- ✅ F12: `logos-adopt` CLI — drives the router locally over SSH (credentials never leave the operator's machine): compatibility check (OpenWrt, arch incl. MIPS endianness, RAM/flash), **pre-adoption snapshot** (package list + `uci export`) stored on the device, agent binary fetched from the control plane (`/api/v1/agent-binary/{arch}`, `LOGOS_AGENT_BINARIES_DIR`) or a local file, procd service install, enroll, fail-safe rollback of everything uploaded on mid-install failure.
+- ✅ F13 (full): `logos-agent leave --cleanup` / `logos-adopt remove --cleanup` — removes packages added since adoption (diff vs snapshot, per-item confirm/skip semantics via plan + `--yes`), reverts UCI to the snapshot, wipes identity; works without headend connectivity.
+- ⬜ F12: fleet adoption (CSV/IP-range) — v1 per PRD.
+- ⬜ File checksums in the snapshot (config-file-level conflict detection).
+- ⬜ F2 (full): first-run local setup page with captive redirect for pre-flashed devices.
+- ⬜ F14: `logos-imagebuilder` wrapper (bake agent + headend + enrollment key into a sysupgrade image).
 
 ### M3 — Operate a small fleet
 
