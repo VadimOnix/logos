@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/VadimOnix/logos/server/internal/auth"
+	"github.com/VadimOnix/logos/server/internal/ca"
 	"github.com/VadimOnix/logos/server/internal/hub"
 	"github.com/VadimOnix/logos/server/internal/store"
 )
@@ -24,18 +25,33 @@ type Server struct {
 	hub   *hub.Hub
 	log   *slog.Logger
 
+	ca            *ca.CA
+	agentEndpoint string // public wss:// URL of the mTLS agent listener
+
 	enrollLimiter *rateLimiter
 	loginLimiter  *rateLimiter
 }
 
-func NewServer(st *store.Store, h *hub.Hub, log *slog.Logger) *Server {
+func NewServer(st *store.Store, h *hub.Hub, log *slog.Logger, authority *ca.CA, agentEndpoint string) *Server {
 	return &Server{
 		store:         st,
 		hub:           h,
 		log:           log,
+		ca:            authority,
+		agentEndpoint: agentEndpoint,
 		enrollLimiter: newRateLimiter(0.2, 10), // ~12/min sustained per IP
 		loginLimiter:  newRateLimiter(0.2, 10),
 	}
+}
+
+// AgentHandler serves the dedicated mTLS listener: the agent channel and
+// certificate renewal. Client certs are verified by the TLS layer against
+// the internal CA; handlers read the node identity from the cert CN.
+func (s *Server) AgentHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /agent/ws", s.handleAgentWSMTLS)
+	mux.HandleFunc("POST /agent/renew", s.handleAgentRenew)
+	return s.logRequests(mux)
 }
 
 func (s *Server) Handler() http.Handler {

@@ -46,6 +46,7 @@ type agentMsg struct {
 type enrollRequest struct {
 	Code         string `json:"code"`
 	PublicKey    string `json:"public_key"`
+	CSR          string `json:"csr,omitempty"` // PEM; enables the mTLS channel
 	Hostname     string `json:"hostname"`
 	AgentVersion string `json:"agent_version"`
 	OSVersion    string `json:"os_version"`
@@ -56,4 +57,9 @@ type enrollResponse struct {
 	NodeID    string `json:"node_id"`
 	NodeName  string `json:"node_name"`
 	NodeToken string `json:"node_token"`
+
+	// mTLS channel material, present when the request carried a CSR.
+	ClientCert    string `json:"client_cert,omitempty"`
+	CACert        string `json:"ca_cert,omitempty"`
+	AgentEndpoint string `json:"agent_endpoint,omitempty"`
 }

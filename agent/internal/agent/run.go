@@ -30,6 +30,10 @@ const (
 // errLeft signals that the server told us to unenroll.
 var errLeft = errors.New("server requested leave")
 
+// statePathInUse is the state file Run was started with; cert renewal needs
+// it to persist the rotated certificate.
+var statePathInUse string
+
 // Run is the agent main loop: keep the outbound management channel up
 // forever, with exponential backoff + jitter between attempts (PRD §6
 // Resilience). Returns only on context cancellation or a server-ordered leave.
@@ -39,6 +43,8 @@ func Run(ctx context.Context, statePath string, log *slog.Logger) error {
 		return fmt.Errorf("not enrolled: %w (run `logos-agent enroll` first)", err)
 	}
 	log.Info("logos-agent starting", "version", Version, "server", st.ServerURL, "node", st.NodeID)
+
+	statePathInUse = statePath
 
 	// A leftover unconfirmed config change means the previous apply never got
 	// confirmed (crash/reboot/lost channel) — restore the snapshot first.
@@ -93,17 +99,32 @@ func (s *wsSession) send(ctx context.Context, msg wireMsg) error {
 }
 
 func connectAndServe(ctx context.Context, st *State, log *slog.Logger) error {
-	wsURL := strings.Replace(st.ServerURL, "http", "ws", 1) + "/api/v1/agent/ws"
+	var wsURL string
+	opts := &websocket.DialOptions{}
+	if st.HasMTLS() {
+		// Preferred channel: client-certificate auth against the dedicated
+		// agent endpoint, CA pinned. Rotate the cert first if it is close
+		// to expiry (the current one must still be valid to authenticate).
+		maybeRenewCert(ctx, statePathInUse, st, log)
+		tlsCfg, err := mtlsConfig(st)
+		if err != nil {
+			return err
+		}
+		wsURL = st.AgentEndpoint + "/agent/ws"
+		opts.HTTPClient = &http.Client{Transport: &http.Transport{TLSClientConfig: tlsCfg}}
+	} else {
+		// Legacy channel for nodes enrolled before certificates existed.
+		wsURL = strings.Replace(st.ServerURL, "http", "ws", 1) + "/api/v1/agent/ws"
+		opts.HTTPHeader = http.Header{"Authorization": {"Bearer " + st.NodeToken}}
+	}
 
 	dialCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	conn, resp, err := websocket.Dial(dialCtx, wsURL, &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": {"Bearer " + st.NodeToken}},
-	})
+	conn, resp, err := websocket.Dial(dialCtx, wsURL, opts)
 	cancel()
 	if err != nil {
 		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
-			// Token revoked server-side (e.g. panel "Remove from management"
-			// while we were offline): honor the removal.
+			// Credentials revoked server-side (e.g. panel "Remove from
+			// management" while we were offline): honor the removal.
 			return errLeft
 		}
 		return err

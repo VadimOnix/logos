@@ -24,7 +24,7 @@ enroll into and stay connected to. Everything later builds on this channel.
 | F13 Clean offboarding | `logos-agent leave` wipes local identity without needing the headend; panel-side remove marks node `left`. Snapshot-based full cleanup is **M2** (with F12 adoption tool) | ✅ started |
 | F9 Self-hosted deployment | `docker compose up` = server + Postgres; single static server binary | ✅ started |
 
-### M1 — A real OpenWrt node (in progress)
+### M1 — A real OpenWrt node (✅ code-complete; size budget open)
 
 - ✅ RPC over the management channel: correlated request/response, bounded concurrency on the agent (foundation for F4/F5/F10).
 - ✅ F5: package management per node — opkg/apk autodetect, list/install/remove/update via RPC + REST + panel.
@@ -32,9 +32,11 @@ enroll into and stay connected to. Everything later builds on this channel.
 - ✅ F4 step 1: read-only `uci export` snapshot via RPC + REST. Write path (set/commit, versioned server-side, rollback with auto-revert watchdog) still open.
 - ✅ F1 (packaging skeleton): OpenWrt feed Makefile + procd init script. Size budget ≤ 1 MB is currently exceeded by Go binaries (~4–5 MB stripped) — mitigation tracked in agent/openwrt/README.md.
 - ✅ F4 write path: `uci set/delete/commit` through the channel — every push is a versioned `config_changes` row with pre-change snapshots; the agent arms an **auto-revert watchdog** (crash/reboot-safe via a persisted pending file) and the server confirms only over a live channel, so a change that breaks connectivity reverts itself; rollback endpoint restores stored snapshots through the same machinery.
-- ⬜ mTLS for the agent channel (per-node client certs issued at enrollment; token auth remains the bootstrap).
-- ⬜ F6: wireless associations via `ubus`.
-- ⬜ CI job building the agent for OpenWrt targets + size report.
+- ✅ mTLS for the agent channel: internal CA on the control plane, per-node client certs issued from a CSR at enrollment (key never leaves the device), dedicated TLS listener with `RequireAndVerifyClientCert`, identity = cert CN (node UUID) re-checked against node status per request (left nodes rejected without a CRL), rotation via `/agent/renew` inside a 30-day window. Token channel remains for pre-cert nodes.
+- ✅ F6: wireless associations via `ubus call iwinfo` in the heartbeat.
+- ✅ CI job cross-building the agent for common OpenWrt targets (mips/mipsle/arm/arm64/x86_64) with a size report vs the ≤1 MB budget.
+
+**M1 exit note:** the agent binary size budget (≤1 MB) is still exceeded (~4–5 MB stripped Go); tracked in agent/openwrt/README.md — candidates: upx, TinyGo, or revising the PRD budget to ~2 MB compressed.
 
 ### M2 — Adoption & offboarding done right
 

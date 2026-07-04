@@ -26,3 +26,42 @@ jobs:
         run: |
           out=$(gofmt -l server agent)
           if [ -n "$out" ]; then echo "unformatted files:"; echo "$out"; exit 1; fi
+
+  # Cross-compile the agent for common OpenWrt targets and report binary
+  # sizes against the PRD ≤1 MB budget (informational until the budget is met).
+  agent-openwrt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache-dependency-path: agent/go.sum
+      - name: Cross-build agent
+        run: |
+          set -e
+          mkdir -p dist
+          build() {
+            out="dist/logos-agent-$1"
+            echo "building $out"
+            env CGO_ENABLED=0 GOOS=linux "${@:2}" \
+              go build -ldflags "-s -w" -trimpath -o "$out" ./agent/cmd/logos-agent
+          }
+          build mips_24kc    GOARCH=mips   GOMIPS=softfloat   # ath79, ramips (24Kc)
+          build mipsel_24kc  GOARCH=mipsle GOMIPS=softfloat   # mt7621
+          build arm_cortex-a7 GOARCH=arm   GOARM=7            # ipq40xx, bcm27xx
+          build aarch64      GOARCH=arm64                     # mt7622, ipq807x, rockchip
+          build x86_64       GOARCH=amd64
+      - name: Size report
+        run: |
+          {
+            echo "### logos-agent binary sizes (PRD budget: ≤ 1 MB flash)"
+            echo ""
+            echo "| target | size | gzipped |"
+            echo "|---|---|---|"
+            for f in dist/logos-agent-*; do
+              gz=$(gzip -c "$f" | wc -c)
+              printf "| %s | %s | %s |\n" "$(basename "$f")" \
+                "$(numfmt --to=iec "$(stat -c%s "$f")")" "$(numfmt --to=iec "$gz")"
+            done
+          } | tee -a "$GITHUB_STEP_SUMMARY"

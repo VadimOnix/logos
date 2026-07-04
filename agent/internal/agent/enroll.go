@@ -37,9 +37,15 @@ func Enroll(ctx context.Context, statePath, serverURL, code string) error {
 	}
 
 	hostname, _ := os.Hostname()
+	// The TLS key never leaves the device; only the CSR is sent.
+	tlsKeyPEM, csrPEM, err := newKeyAndCSR(hostname)
+	if err != nil {
+		return err
+	}
 	reqBody, err := json.Marshal(enrollRequest{
 		Code:         code,
 		PublicKey:    hex.EncodeToString(pub),
+		CSR:          csrPEM,
 		Hostname:     hostname,
 		AgentVersion: Version,
 		OSVersion:    OSVersion(),
@@ -80,10 +86,20 @@ func Enroll(ctx context.Context, statePath, serverURL, code string) error {
 		NodeToken:  er.NodeToken,
 		PrivateKey: hex.EncodeToString(priv.Seed()),
 	}
+	if er.ClientCert != "" && er.CACert != "" && er.AgentEndpoint != "" {
+		st.ClientCert = er.ClientCert
+		st.ClientKey = tlsKeyPEM
+		st.CACert = er.CACert
+		st.AgentEndpoint = er.AgentEndpoint
+	}
 	if err := SaveState(statePath, st); err != nil {
 		return fmt.Errorf("save state: %w", err)
 	}
-	fmt.Printf("enrolled as %q (node %s)\nstate: %s\n", er.NodeName, er.NodeID, statePath)
+	channel := "token (legacy)"
+	if st.HasMTLS() {
+		channel = "mTLS via " + st.AgentEndpoint
+	}
+	fmt.Printf("enrolled as %q (node %s)\nchannel: %s\nstate: %s\n", er.NodeName, er.NodeID, channel, statePath)
 	return nil
 }
 

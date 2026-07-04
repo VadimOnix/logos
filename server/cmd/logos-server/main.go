@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/VadimOnix/logos/server/internal/api"
 	"github.com/VadimOnix/logos/server/internal/auth"
+	"github.com/VadimOnix/logos/server/internal/ca"
 	"github.com/VadimOnix/logos/server/internal/config"
 	"github.com/VadimOnix/logos/server/internal/hub"
 	"github.com/VadimOnix/logos/server/internal/store"
@@ -64,7 +66,12 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	srv := api.NewServer(st, hub.New(), log)
+	authority, err := loadOrCreateCA(ctx, st, log)
+	if err != nil {
+		return err
+	}
+
+	srv := api.NewServer(st, hub.New(), log, authority, cfg.AgentEndpoint)
 	srv.StartSessionJanitor(ctx)
 
 	httpSrv := &http.Server{
@@ -73,9 +80,26 @@ func run(log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	errCh := make(chan error, 1)
+	serverCert, err := authority.ServerCert(cfg.AgentHosts)
+	if err != nil {
+		return fmt.Errorf("agent listener cert: %w", err)
+	}
+	agentSrv := &http.Server{
+		Addr:    cfg.AgentListen,
+		Handler: srv.AgentHandler(),
+		TLSConfig: &tls.Config{
+			MinVersion:   tls.VersionTLS12,
+			Certificates: []tls.Certificate{serverCert},
+			ClientAuth:   tls.RequireAndVerifyClientCert,
+			ClientCAs:    authority.Pool(),
+		},
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	errCh := make(chan error, 2)
 	go func() { errCh <- httpSrv.ListenAndServe() }()
-	log.Info("listening", "addr", cfg.ListenAddr)
+	go func() { errCh <- agentSrv.ListenAndServeTLS("", "") }()
+	log.Info("listening", "api", cfg.ListenAddr, "agents_mtls", cfg.AgentListen, "agent_endpoint", cfg.AgentEndpoint)
 
 	select {
 	case err := <-errCh:
@@ -84,11 +108,46 @@ func run(log *slog.Logger) error {
 		log.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		agentSrv.Shutdown(shutdownCtx)
 		if err := httpSrv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 			return err
 		}
 		return nil
 	}
+}
+
+// loadOrCreateCA restores the internal CA from Postgres or mints one on
+// first start. A concurrent first start is settled by the database: the
+// loser re-reads the winner's CA.
+func loadOrCreateCA(ctx context.Context, st *store.Store, log *slog.Logger) (*ca.CA, error) {
+	certPEM, keyPEM, err := st.GetCA(ctx)
+	if err == nil {
+		return ca.Load(certPEM, keyPEM)
+	}
+	if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	authority, err := ca.Generate()
+	if err != nil {
+		return nil, err
+	}
+	certPEM, keyPEM, err = authority.PEM()
+	if err != nil {
+		return nil, err
+	}
+	won, err := st.SaveCA(ctx, certPEM, keyPEM)
+	if err != nil {
+		return nil, err
+	}
+	if !won {
+		certPEM, keyPEM, err = st.GetCA(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return ca.Load(certPEM, keyPEM)
+	}
+	log.Info("internal agent CA created")
+	return authority, nil
 }
 
 // bootstrapAdmin creates the first admin user from LOGOS_ADMIN_EMAIL/PASSWORD

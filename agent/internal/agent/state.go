@@ -18,10 +18,23 @@ const DefaultStatePath = "/etc/logos/agent.json"
 // destroyed by `leave` — wiping this file is what makes offboarding work
 // without headend connectivity (PRD §4.4).
 type State struct {
-	ServerURL  string `json:"server_url"`
-	NodeID     string `json:"node_id"`
-	NodeToken  string `json:"node_token"`
-	PrivateKey string `json:"private_key"` // hex ed25519 seed; used for mTLS in M1
+	ServerURL string `json:"server_url"`
+	NodeID    string `json:"node_id"`
+	NodeToken string `json:"node_token"`
+
+	// mTLS channel material (empty for nodes enrolled before certificates
+	// existed — those fall back to the token-authenticated channel).
+	AgentEndpoint string `json:"agent_endpoint,omitempty"` // wss://host:port
+	ClientCert    string `json:"client_cert,omitempty"`    // PEM
+	ClientKey     string `json:"client_key,omitempty"`     // PEM (ECDSA)
+	CACert        string `json:"ca_cert,omitempty"`        // PEM, pinned
+
+	PrivateKey string `json:"private_key,omitempty"` // hex ed25519 seed (overlay identity, M3)
+}
+
+// HasMTLS reports whether the node was issued a client certificate.
+func (s *State) HasMTLS() bool {
+	return s.AgentEndpoint != "" && s.ClientCert != "" && s.ClientKey != "" && s.CACert != ""
 }
 
 func StatePath() string {

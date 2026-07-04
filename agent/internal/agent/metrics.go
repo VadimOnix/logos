@@ -23,6 +23,7 @@ type Metrics struct {
 	Kernel         string       `json:"kernel,omitempty"`
 	Interfaces     []IfaceStats `json:"interfaces,omitempty"`
 	DHCPClients    []DHCPClient `json:"dhcp_clients,omitempty"`
+	WifiClients    []WifiClient `json:"wifi_clients,omitempty"`
 }
 
 // IfaceStats are cumulative counters from /proc/net/dev (F6: traffic per
@@ -84,6 +85,7 @@ func CollectMetrics() Metrics {
 	}
 	m.Interfaces = readIfaceStats("/proc/net/dev")
 	m.DHCPClients = readDHCPLeases("/tmp/dhcp.leases")
+	m.WifiClients = collectWirelessClients()
 	return m
 }
 
@@ -154,7 +156,10 @@ func OSVersion() string {
 	return runtime.GOOS
 }
 
-func utsString(f [65]int8) string {
+// utsString converts a Utsname field to a string. The element type of
+// syscall.Utsname arrays is platform-dependent (int8 on amd64/mips, uint8 on
+// arm), hence the type parameter.
+func utsString[T int8 | uint8](f [65]T) string {
 	b := make([]byte, 0, len(f))
 	for _, c := range f {
 		if c == 0 {

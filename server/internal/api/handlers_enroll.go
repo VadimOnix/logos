@@ -64,12 +64,35 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.log.Info("node enrolled", "node", node.ID, "name", node.Name, "hostname", req.Hostname)
-	writeJSON(w, http.StatusCreated, enrollResponse{
+	resp := enrollResponse{
 		NodeID:    node.ID,
 		NodeName:  node.Name,
 		NodeToken: token,
-	})
+	}
+	// Issue the mTLS client certificate when the agent sent a CSR. The code
+	// was already consumed: a bad CSR fails the enrollment rather than
+	// leaving a certless half-enrolled node with a burned code.
+	if req.CSR != "" {
+		certPEM, notAfter, err := s.ca.SignAgentCSR(req.CSR, node.ID)
+		if err != nil {
+			if delErr := s.store.DeleteNode(r.Context(), node.ID); delErr != nil {
+				s.log.Error("cleanup node after bad CSR", "node", node.ID, "err", delErr)
+			}
+			httpError(w, http.StatusBadRequest, "invalid CSR: "+err.Error())
+			return
+		}
+		if err := s.store.SetNodeCertNotAfter(r.Context(), node.ID, notAfter); err != nil {
+			s.internalError(w, err)
+			return
+		}
+		resp.ClientCert = certPEM
+		resp.CACert = s.ca.CertPEM()
+		resp.AgentEndpoint = s.agentEndpoint
+	}
+
+	s.log.Info("node enrolled", "node", node.ID, "name", node.Name,
+		"hostname", req.Hostname, "mtls", req.CSR != "")
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // handleAgentLeave lets an agent unenroll itself (logos-agent leave, PRD §4.4).
