@@ -38,7 +38,7 @@ logos-adopt remove --router 192.168.1.1 --cleanup   # revert to the pre-adoption
 ### Building from source
 
 ```sh
-make build       # bin/logos-server, bin/logos-agent (Go 1.24+)
+make build       # bin/logos-server, bin/logos-agent (Go 1.25+)
 make test
 ```
 
