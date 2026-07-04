@@ -1,0 +1,32 @@
+# Production overlay: adds a Caddy reverse proxy with automatic HTTPS in
+# front of the panel/API. Layer it on top of the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Requires in .env:
+#   LOGOS_PANEL_DOMAIN=logos.example.com   # public name for the panel
+#   LOGOS_AGENT_HOST=logos.example.com     # baked into the agent channel cert
+#
+# and a public A/AAAA record for that name pointing at this host, with ports
+# 80, 443 (Caddy) and 8443 (agent channel) reachable. The panel port 8080 is
+# only published on loopback by the base file — Caddy reaches it over the
+# internal compose network, so it never needs to be exposed publicly.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      LOGOS_PANEL_DOMAIN: ${LOGOS_PANEL_DOMAIN:?set LOGOS_PANEL_DOMAIN in .env}
+    depends_on:
+      - server
+
+volumes:
+  caddy-data:
+  caddy-config:
