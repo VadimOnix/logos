@@ -84,6 +84,20 @@
   </div>
   <div id="overlays"></div>
 
+  <details id="tpl-section" style="margin-top:28px">
+    <summary style="cursor:pointer"><b style="font-size:15px">Config templates</b>
+      <span class="muted">— reusable UCI changes with ${var} placeholders</span></summary>
+    <div id="templates" style="margin:8px 0"></div>
+    <input id="tpl-name" placeholder="template name" style="width:200px;margin-top:4px">
+    <textarea id="tpl-editor" rows="4" spellcheck="false"
+      placeholder="set system.@system[0].hostname=${node.name}&#10;set network.lan.ipaddr=${lan_ip}"
+      style="width:100%;margin-top:6px;font:12px monospace;color:inherit;background:transparent;border:1px solid var(--line);border-radius:6px;padding:8px"></textarea>
+    <div class="row" style="margin-top:6px">
+      <button class="primary" id="tpl-create">Save template</button>
+      <span class="muted">Same syntax as the UCI editor. <code>${node.name}</code> / <code>${node.id}</code> are built in; other <code>${vars}</code> are asked for at apply time. Every node auto-reverts on lost connectivity.</span>
+    </div>
+  </details>
+
   <details id="audit-section" style="margin-top:28px">
     <summary style="cursor:pointer"><b style="font-size:15px">Audit log</b>
       <span class="muted">— recent admin actions (kept 90 days)</span></summary>
@@ -312,6 +326,78 @@ $('logout').onclick = async () => { await api('/api/v1/auth/logout', { method: '
 
 $('audit-section').addEventListener('toggle', () => { if ($('audit-section').open) refreshAudit(); });
 $('audit-refresh').onclick = refreshAudit;
+
+// Config templates (v1.0): reusable UCI changes with ${var} placeholders.
+async function refreshTemplates() {
+  if ($('app').hidden) return;
+  const ts = await api('/api/v1/config-templates').catch(() => null);
+  if (!ts) return;
+  if (!ts.length) {
+    const s = document.createElement('span');
+    s.className = 'muted'; s.textContent = 'No templates yet.';
+    $('templates').replaceChildren(s);
+    return;
+  }
+  $('templates').replaceChildren(...ts.map(t => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.style.margin = '4px 0';
+    const name = document.createElement('b'); name.textContent = t.name;
+    const info = document.createElement('span'); info.className = 'muted';
+    info.textContent = `${(t.changes || []).length} change(s)`;
+    const apply = document.createElement('button'); apply.textContent = 'Apply to all online';
+    apply.onclick = () => applyTemplate(t);
+    const del = document.createElement('button'); del.className = 'danger'; del.textContent = 'Delete';
+    del.onclick = async () => {
+      if (!confirm(`Delete template "${t.name}"?`)) return;
+      await api(`/api/v1/config-templates/${t.id}`, { method: 'DELETE' }).catch(e => alert(e.message));
+      refreshTemplates();
+    };
+    row.append(name, info, apply, del);
+    return row;
+  }));
+}
+
+async function applyTemplate(t) {
+  const ids = allNodes.filter(n => n.status === 'online').map(n => n.id);
+  if (!ids.length) { alert('No online nodes.'); return; }
+  // Ask for every ${var} except the per-node builtins.
+  const names = new Set();
+  for (const ch of t.changes || []) {
+    for (const m of `${ch.key}\n${ch.value || ''}`.matchAll(/\$\{([a-zA-Z0-9_.-]+)\}/g)) {
+      if (!m[1].startsWith('node.')) names.add(m[1]);
+    }
+  }
+  const vars = {};
+  for (const nm of names) {
+    const v = prompt(`Value for \${${nm}}:`);
+    if (v === null) return;
+    vars[nm] = v;
+  }
+  if (!confirm(`Apply "${t.name}" to ${ids.length} online node(s)? Each node auto-reverts if it drops offline.`)) return;
+  try {
+    const r = await api(`/api/v1/config-templates/${t.id}/apply`, {
+      method: 'POST', body: JSON.stringify({ node_ids: ids, vars }) });
+    const failed = r.results.filter(x => !x.ok);
+    alert(`${r.ok_count}/${r.total} applied.` +
+      (failed.length ? '\n' + failed.map(x => `${x.node_id.slice(0, 8)}: ${x.error}`).join('\n') : ''));
+  } catch (err) { alert(err.message); }
+}
+
+$('tpl-create').onclick = async () => {
+  let changes;
+  try { changes = parseUciLines($('tpl-editor').value); }
+  catch (e) { alert(e.message); return; }
+  if (!changes.length) { alert('No changes in the template.'); return; }
+  const name = $('tpl-name').value.trim();
+  if (!name) { alert('Template name is required.'); return; }
+  try {
+    await api('/api/v1/config-templates', { method: 'POST', body: JSON.stringify({ name, changes }) });
+    $('tpl-name').value = ''; $('tpl-editor').value = '';
+    refreshTemplates();
+  } catch (err) { alert(err.message); }
+};
+$('tpl-section').addEventListener('toggle', () => { if ($('tpl-section').open) refreshTemplates(); });
 
 // Bulk package actions across every online node (v1.0 group operations).
 async function bulkPkg(action) {
