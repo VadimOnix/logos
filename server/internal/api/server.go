@@ -98,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	// Nodes
 	mux.Handle("GET /api/v1/nodes", s.requireUser(s.handleListNodes))
 	mux.Handle("GET /api/v1/nodes/{id}", s.requireUser(s.handleGetNode))
+	mux.Handle("PATCH /api/v1/nodes/{id}", s.requireUser(s.handleRenameNode))
 	mux.Handle("POST /api/v1/nodes/{id}/remove", s.requireUser(s.handleRemoveNode))
 	mux.Handle("DELETE /api/v1/nodes/{id}", s.requireUser(s.handleDeleteNode))
 	mux.Handle("POST /api/v1/nodes/packages/bulk", s.requireUser(s.handleBulkPackageAction))

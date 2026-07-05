@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/VadimOnix/logos/server/internal/store"
@@ -108,6 +110,42 @@ func (s *Server) handleRemoveNode(w http.ResponseWriter, r *http.Request, u *sto
 	s.audit(r.Context(), u, "node.remove", id, "")
 	s.log.Info("node removed from management", "node", id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "left"})
+}
+
+// handleRenameNode changes the display name. Overlays the node belongs to
+// are re-synced in the background: overlay-DNS labels derive from the name.
+func (s *Server) handleRenameNode(w http.ResponseWriter, r *http.Request, u *store.User) {
+	id := r.PathValue("id")
+	var req struct {
+		Name string `json:"name"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" || len(req.Name) > 64 {
+		httpError(w, http.StatusBadRequest, "name is required (max 64 chars)")
+		return
+	}
+	switch err := s.store.RenameNode(r.Context(), id, req.Name); {
+	case errors.Is(err, store.ErrNotFound):
+		httpError(w, http.StatusNotFound, "node not found")
+		return
+	case err != nil:
+		s.internalError(w, err)
+		return
+	}
+	if ids, err := s.store.ListNodeOverlayIDs(r.Context(), id); err == nil && len(ids) > 0 {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 4*overlaySyncTimeout)
+			defer cancel()
+			for _, oid := range ids {
+				s.syncOverlay(ctx, oid)
+			}
+		}()
+	}
+	s.audit(r.Context(), u, "node.rename", id, req.Name)
+	writeJSON(w, http.StatusOK, map[string]string{"name": req.Name})
 }
 
 // handleAcceptConfigBaseline adopts the node's current config as the new
