@@ -5,3 +5,7 @@
 .env
 go.work.sum
 /deploy/.env
+# The manual E2E installs Playwright ad hoc (see .github/workflows/e2e.yml)
+/node_modules/
+/package.json
+/package-lock.json

@@ -1,0 +1,52 @@
+# Manual end-to-end test (run from the Actions tab → "e2e" → Run workflow,
+# defaulting to master): a REAL OpenWrt rootfs container enrolls into the
+# control plane while Chromium drives the actual admin panel — login, claim
+# code minted in the UI, node coming online, a UCI change applied through
+# the panel editor and confirmed by the auto-revert flow, rename, audit.
+name: e2e
+
+on:
+  workflow_dispatch:
+
+jobs:
+  openwrt-panel:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: logos
+          POSTGRES_USER: logos
+          POSTGRES_PASSWORD: logos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U logos"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: |
+            server/go.sum
+            agent/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund playwright > /dev/null
+          npx playwright install --with-deps chromium
+      - name: Run E2E (OpenWrt node + admin panel)
+        run: E2E_DATABASE_URL=postgres://logos:logos@127.0.0.1:5432/logos E2E_ARTIFACTS="$RUNNER_TEMP/e2e-artifacts" ./scripts/e2e-openwrt.sh
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: ${{ runner.temp }}/e2e-artifacts/
+          if-no-files-found: ignore

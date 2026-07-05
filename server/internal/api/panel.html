@@ -562,8 +562,11 @@ $('load-changes').onclick = () => nodeAction('loading history', async () => {
   const list = await api(`/api/v1/nodes/${selected.id}/config/changes`);
   if (!list.length) return 'No config changes yet.';
   return list.map(c => {
-    const ops = c.kind === 'rollback' ? `rollback of #${JSON.parse(c.changes).rollback_of}`
-      : JSON.parse(c.changes).map(x => `${x.op} ${x.key}${x.value !== undefined ? '=' + x.value : ''}`).join('; ');
+    // changes arrives as a JSON value from the API (jsonb passthrough),
+    // but tolerate a string for safety.
+    const ch = typeof c.changes === 'string' ? JSON.parse(c.changes) : c.changes;
+    const ops = c.kind === 'rollback' ? `rollback of #${ch.rollback_of}`
+      : ch.map(x => `${x.op} ${x.key}${x.value !== undefined ? '=' + x.value : ''}`).join('; ');
     return `#${c.id} [${c.status}] ${new Date(c.created_at).toLocaleString()}  ${ops}${c.error ? '\n    ' + c.error : ''}`;
   }).join('\n');
 });
