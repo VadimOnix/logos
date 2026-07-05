@@ -143,6 +143,13 @@ Shipped after MVP completion, in small increments:
   `GET /api/v1/audit`, 90-day retention, collapsible panel viewer.
 - **TOTP 2FA** — RFC 6238 second factor on stdlib only: possession-proof
   enrollment, code-gated disable, progressive login field in the panel.
+- **Config drift detection** — the agent fingerprints `uci export` in every
+  heartbeat; the server compares it against a per-node accepted baseline
+  (first contact / confirmed Logos change / explicit accept) and the panel
+  flags "⚠ drift" with an accept action.
+- **Bulk package operations** — `POST /api/v1/nodes/packages/bulk` fans
+  install/remove/update out to many nodes (bounded concurrency, per-node
+  verdicts); panel buttons apply to all online nodes.
 - **Ops hardening** — `/readyz` readiness probe (DB ping) wired into the
   compose healthcheck, and a production Caddy overlay with automatic HTTPS.
 
