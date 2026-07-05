@@ -75,6 +75,19 @@
   </div>
   <div id="overlays"></div>
 
+  <details id="audit-section" style="margin-top:28px">
+    <summary style="cursor:pointer"><b style="font-size:15px">Audit log</b>
+      <span class="muted">— recent admin actions (kept 90 days)</span></summary>
+    <div class="row" style="margin:8px 0">
+      <button id="audit-refresh">Refresh</button>
+      <span class="muted" id="audit-empty" hidden>No entries yet.</span>
+    </div>
+    <table>
+      <thead><tr><th>When</th><th>User</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+      <tbody id="audit"></tbody>
+    </table>
+  </details>
+
   <section id="detail" hidden>
     <h2 id="detail-title"></h2>
     <div class="row" style="margin-bottom:8px">
@@ -170,6 +183,23 @@ async function refreshStats() {
   $('stats').replaceChildren(...items);
 }
 
+// Audit trail (loaded when the section is opened, or on Refresh).
+async function refreshAudit() {
+  if ($('app').hidden) return;
+  const entries = await api('/api/v1/audit').catch(() => null);
+  if (!entries) return;
+  $('audit-empty').hidden = entries.length > 0;
+  $('audit').replaceChildren(...entries.map(e => {
+    const tr = document.createElement('tr');
+    [fmtAgo(e.at), e.user_email, e.action, e.target || '—', e.detail || ''].forEach(v => {
+      const td = document.createElement('td');
+      td.textContent = v;
+      tr.append(td);
+    });
+    return tr;
+  }));
+}
+
 async function refreshNodes() {
   if ($('app').hidden) return;
   const nodes = await api('/api/v1/nodes').catch(() => null);
@@ -233,6 +263,9 @@ $('login').onsubmit = async (e) => {
 };
 
 $('logout').onclick = async () => { await api('/api/v1/auth/logout', { method: 'POST' }).catch(() => {}); show(false); };
+
+$('audit-section').addEventListener('toggle', () => { if ($('audit-section').open) refreshAudit(); });
+$('audit-refresh').onclick = refreshAudit;
 
 // Node detail (packages / config over the live channel)
 let selected = null;
