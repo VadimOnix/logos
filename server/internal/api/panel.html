@@ -123,6 +123,7 @@
       <button id="pkg-install">Install</button>
       <button id="pkg-remove" class="danger">Remove</button>
       <button id="accept-baseline" hidden title="Adopt the node's current config as the drift baseline">Accept config drift</button>
+      <button id="fw-upgrade" class="danger" title="Download, verify sha256 and sysupgrade — the node reboots">Upgrade firmware…</button>
       <span class="muted" id="detail-busy"></span>
     </div>
     <details style="margin-bottom:8px">
@@ -419,6 +420,20 @@ async function bulkPkg(action) {
 $('bulk-install').onclick = () => bulkPkg('install');
 $('bulk-remove').onclick = () => bulkPkg('remove');
 $('bulk-update').onclick = () => bulkPkg('update');
+
+$('fw-upgrade').onclick = async () => {
+  if (!selected) return;
+  const url = prompt(`Firmware image URL for "${selected.name}" (sysupgrade image for its exact device model):`);
+  if (!url) return;
+  const sha = prompt('sha256 of the image (64 hex chars) — the agent refuses to flash without a match:');
+  if (!sha) return;
+  if (!confirm(`Flash "${selected.name}" now? The node reboots and is offline for a few minutes. Config is preserved.`)) return;
+  try {
+    const r = await api(`/api/v1/nodes/${selected.id}/firmware`, {
+      method: 'POST', body: JSON.stringify({ url: url.trim(), sha256: sha.trim() }) });
+    alert(`Image verified (${r.sha256.slice(0, 12)}…), flashing started. The node will reconnect after the upgrade.`);
+  } catch (err) { alert(err.message); }
+};
 
 $('accept-baseline').onclick = async () => {
   if (!selected) return;

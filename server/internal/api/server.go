@@ -108,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/nodes/{id}/config/changes", s.requireUser(s.handleApplyConfig))
 	mux.Handle("POST /api/v1/nodes/{id}/config/changes/{change_id}/rollback", s.requireUser(s.handleRollbackConfig))
 	mux.Handle("POST /api/v1/nodes/{id}/config/baseline", s.requireUser(s.handleAcceptConfigBaseline))
+	mux.Handle("POST /api/v1/nodes/{id}/firmware", s.requireUser(s.handleNodeFirmware))
 
 	// Config templates (v1.0)
 	mux.Handle("GET /api/v1/config-templates", s.requireUser(s.handleListTemplates))

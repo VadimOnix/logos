@@ -31,6 +31,8 @@ var rpcHandlers = map[string]rpcHandler{
 	"overlay.sync":      handleOverlaySync,
 	"overlay.reconcile": handleOverlayReconcile,
 	"overlay.remove":    handleOverlayRemove,
+
+	"firmware.upgrade": handleFirmwareUpgrade,
 }
 
 // rpcConcurrency bounds parallel RPC execution so a burst of requests cannot
