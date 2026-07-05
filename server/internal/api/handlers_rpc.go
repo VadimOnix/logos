@@ -77,23 +77,13 @@ func (s *Server) handleNodePackageAction(w http.ResponseWriter, r *http.Request,
 	if !readJSON(w, r, &req) {
 		return
 	}
-	var method string
-	switch req.Action {
-	case "install":
-		method = "packages.install"
-	case "remove":
-		method = "packages.remove"
-	case "update":
-		method = "packages.update"
-	default:
-		httpError(w, http.StatusBadRequest, `action must be "install", "remove", or "update"`)
+	req.Name = strings.TrimSpace(req.Name)
+	method, err := packageMethod(req.Action, req.Name)
+	if err != nil {
+		httpError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if method != "packages.update" && strings.TrimSpace(req.Name) == "" {
-		httpError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	params := map[string]string{"name": strings.TrimSpace(req.Name)}
+	params := map[string]string{"name": req.Name}
 	if res := s.callNode(w, r, rpcMutateTimeout, method, params); res != nil {
 		s.audit(r.Context(), u, "package."+req.Action, r.PathValue("id"), strings.TrimSpace(req.Name))
 		s.log.Info("package action", "node", r.PathValue("id"), "action", req.Action, "pkg", req.Name)

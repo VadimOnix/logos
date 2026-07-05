@@ -62,6 +62,13 @@
     <tbody id="nodes"></tbody>
   </table>
   <div class="muted" id="nodes-empty" hidden>No nodes yet — create a claim code and enroll your first router.</div>
+  <div class="row" style="margin-top:8px">
+    <input id="bulk-pkg" placeholder="package name" style="width:160px">
+    <button id="bulk-install">Install on all online</button>
+    <button id="bulk-remove" class="danger">Remove on all online</button>
+    <button id="bulk-update">Update lists on all online</button>
+    <span class="muted" id="bulk-out"></span>
+  </div>
 
   <h2>Overlay networks</h2>
   <div class="row">
@@ -304,6 +311,26 @@ $('logout').onclick = async () => { await api('/api/v1/auth/logout', { method: '
 
 $('audit-section').addEventListener('toggle', () => { if ($('audit-section').open) refreshAudit(); });
 $('audit-refresh').onclick = refreshAudit;
+
+// Bulk package actions across every online node (v1.0 group operations).
+async function bulkPkg(action) {
+  const ids = allNodes.filter(n => n.status === 'online').map(n => n.id);
+  if (!ids.length) { alert('No online nodes.'); return; }
+  const name = $('bulk-pkg').value.trim();
+  if (action !== 'update' && !name) { alert('Package name is required.'); return; }
+  if (!confirm(`${action} ${name || 'package lists'} on ${ids.length} online node(s)?`)) return;
+  $('bulk-out').textContent = 'running…';
+  try {
+    const r = await api('/api/v1/nodes/packages/bulk', {
+      method: 'POST', body: JSON.stringify({ action, name, node_ids: ids }) });
+    const failed = r.results.filter(x => !x.ok);
+    $('bulk-out').textContent = `${r.ok_count}/${r.total} ok` +
+      (failed.length ? ' — ' + failed.map(x => `${x.node_id.slice(0, 8)}: ${x.error}`).join('; ') : '');
+  } catch (err) { $('bulk-out').textContent = ''; alert(err.message); }
+}
+$('bulk-install').onclick = () => bulkPkg('install');
+$('bulk-remove').onclick = () => bulkPkg('remove');
+$('bulk-update').onclick = () => bulkPkg('update');
 
 $('accept-baseline').onclick = async () => {
   if (!selected) return;
