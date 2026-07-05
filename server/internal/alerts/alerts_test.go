@@ -31,7 +31,7 @@ func TestDecide(t *testing.T) {
 	}
 	online := map[string]bool{"fresh": true, "back": true}
 
-	evs := decide(nodes, online, after, 0, now)
+	evs := decide(nodes, online, after, 0, 0, now)
 	if len(evs) != 2 {
 		t.Fatalf("want 2 events, got %+v", evs)
 	}
@@ -70,7 +70,7 @@ func TestDecideDiskFull(t *testing.T) {
 	}
 	online["healthy"] = true
 
-	evs := decide(nodes, online, time.Minute, 90, now)
+	evs := decide(nodes, online, time.Minute, 90, 0, now)
 	if len(evs) != 2 {
 		t.Fatalf("want 2 disk events, got %+v", evs)
 	}
@@ -95,7 +95,7 @@ func TestDecideDiskFull(t *testing.T) {
 func TestDecideDiskDisabled(t *testing.T) {
 	now := time.Now()
 	nodes := []*store.Node{{ID: "full", Name: "full", Status: store.NodeStatusEnrolled, LastMetrics: fsMetrics(99)}}
-	if evs := decide(nodes, map[string]bool{"full": true}, time.Minute, 0, now); len(evs) != 0 {
+	if evs := decide(nodes, map[string]bool{"full": true}, time.Minute, 0, 0, now); len(evs) != 0 {
 		t.Errorf("diskPct=0 should disable low-flash alerts: %+v", evs)
 	}
 }
@@ -106,7 +106,7 @@ func TestDecideOnlineButStaleHeartbeat(t *testing.T) {
 	now := time.Now()
 	nodes := []*store.Node{{ID: "a", Name: "a", Status: store.NodeStatusEnrolled,
 		LastSeenAt: tp(now.Add(-time.Hour))}}
-	if evs := decide(nodes, map[string]bool{"a": true}, time.Minute, 90, now); len(evs) != 0 {
+	if evs := decide(nodes, map[string]bool{"a": true}, time.Minute, 90, 0, now); len(evs) != 0 {
 		t.Errorf("alerted despite live channel: %+v", evs)
 	}
 }
@@ -175,5 +175,41 @@ func TestTelegramNotifierError(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "123:abc") {
 		t.Errorf("error leaks bot token: %v", err)
+	}
+}
+
+func memMetrics(usedPct float64) []byte {
+	total := 128000.0
+	avail := total * (100 - usedPct) / 100
+	return fmt.Appendf(nil, `{"mem_total_kb":%f,"mem_available_kb":%f}`, total, avail)
+}
+
+func TestDecideMemPressure(t *testing.T) {
+	now := time.Now()
+	seen := now.Add(-10 * time.Second)
+	full := &store.Node{ID: "full", Name: "full", Status: store.NodeStatusEnrolled,
+		LastSeenAt: &seen, LastMetrics: memMetrics(97)}
+	recovered := &store.Node{ID: "rec", Name: "rec", Status: store.NodeStatusEnrolled,
+		LastSeenAt: &seen, LastMetrics: memMetrics(80), AlertedMemFullAt: &now}
+	hovering := &store.Node{ID: "hov", Name: "hov", Status: store.NodeStatusEnrolled,
+		LastSeenAt: &seen, LastMetrics: memMetrics(93), AlertedMemFullAt: &now}
+	nodes := []*store.Node{full, recovered, hovering}
+	online := map[string]bool{"full": true, "rec": true, "hov": true}
+
+	evs := decide(nodes, online, time.Minute, 0, 95, now)
+	if len(evs) != 2 {
+		t.Fatalf("got %d events: %+v", len(evs), evs)
+	}
+	if evs[0].NodeID != "full" || evs[0].Kind != kindMem || !evs[0].Raise {
+		t.Errorf("raise event: %+v", evs[0])
+	}
+	// 80% < 95-5 → clears; 93% hovers inside the hysteresis band → silent.
+	if evs[1].NodeID != "rec" || evs[1].Kind != kindMem || evs[1].Raise {
+		t.Errorf("clear event: %+v", evs[1])
+	}
+
+	// memPct=0 disables the rule entirely.
+	if evs := decide(nodes, online, time.Minute, 0, 0, now); len(evs) != 0 {
+		t.Errorf("disabled rule fired: %+v", evs)
 	}
 }

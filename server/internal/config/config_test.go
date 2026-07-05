@@ -55,3 +55,26 @@ func TestAlertTelegram(t *testing.T) {
 		t.Error("chat without token accepted")
 	}
 }
+
+func TestAlertMemPct(t *testing.T) {
+	t.Setenv("LOGOS_DATABASE_URL", "postgres://x")
+
+	// Off by default.
+	cfg, err := FromEnv()
+	if err != nil || cfg.AlertMemPct != 0 {
+		t.Fatalf("default: pct=%v err=%v", cfg.AlertMemPct, err)
+	}
+
+	t.Setenv("LOGOS_ALERT_MEM_PCT", "95")
+	cfg, err = FromEnv()
+	if err != nil || cfg.AlertMemPct != 95 {
+		t.Errorf("explicit: pct=%v err=%v", cfg.AlertMemPct, err)
+	}
+
+	for _, bad := range []string{"100", "-1", "hot"} {
+		t.Setenv("LOGOS_ALERT_MEM_PCT", bad)
+		if _, err := FromEnv(); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}

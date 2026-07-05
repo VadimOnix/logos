@@ -41,6 +41,7 @@ type Config struct {
 	AlertWebhookURL    string        // LOGOS_ALERT_WEBHOOK_URL
 	AlertOfflineAfter  time.Duration // LOGOS_ALERT_OFFLINE_AFTER (default 3m)
 	AlertDiskPct       float64       // LOGOS_ALERT_DISK_PCT (default 90; 0 disables)
+	AlertMemPct        float64       // LOGOS_ALERT_MEM_PCT (default 0 = off)
 	AlertTelegramToken string        // LOGOS_ALERT_TELEGRAM_TOKEN (bot token)
 	AlertTelegramChat  string        // LOGOS_ALERT_TELEGRAM_CHAT (chat id or @channel)
 	SMTPAddr           string        // LOGOS_SMTP_ADDR (host:port)
@@ -109,6 +110,15 @@ func FromEnv() (*Config, error) {
 			return nil, fmt.Errorf("LOGOS_ALERT_DISK_PCT must be a number in [0,100) (e.g. 90; 0 disables)")
 		}
 		cfg.AlertDiskPct = p
+	}
+	// Memory pressure defaults to off: routers legitimately run hot on RAM
+	// (caches, conntrack), so this is an opt-in rule.
+	if v := os.Getenv("LOGOS_ALERT_MEM_PCT"); v != "" {
+		p, err := strconv.ParseFloat(v, 64)
+		if err != nil || p < 0 || p >= 100 {
+			return nil, fmt.Errorf("LOGOS_ALERT_MEM_PCT must be a number in [0,100) (e.g. 95; 0 disables)")
+		}
+		cfg.AlertMemPct = p
 	}
 	return cfg, nil
 }

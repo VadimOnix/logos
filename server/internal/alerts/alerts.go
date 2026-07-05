@@ -136,6 +136,7 @@ func (m *SMTPNotifier) Notify(_ context.Context, subject, text string) error {
 const (
 	kindOffline = "offline"
 	kindDisk    = "disk"
+	kindMem     = "mem"
 )
 
 // diskClearMargin is the hysteresis band (in percentage points) below the
@@ -153,9 +154,9 @@ type event struct {
 }
 
 // decide computes the transitions for one scan. Pure — all state comes in
-// via the node rows, the online set, and the thresholds. A diskPct of 0
-// disables low-flash evaluation.
-func decide(nodes []*store.Node, online map[string]bool, offlineAfter time.Duration, diskPct float64, now time.Time) []event {
+// via the node rows, the online set, and the thresholds. A diskPct/memPct of
+// 0 disables that rule.
+func decide(nodes []*store.Node, online map[string]bool, offlineAfter time.Duration, diskPct, memPct float64, now time.Time) []event {
 	var out []event
 	for _, n := range nodes {
 		if n.Status != store.NodeStatusEnrolled {
@@ -216,6 +217,34 @@ func decide(nodes []*store.Node, online map[string]bool, offlineAfter time.Durat
 				}
 			}
 		}
+
+		// Memory pressure: same shape as low-flash (online only, raise at
+		// the threshold, clear a hysteresis band below it).
+		if memPct > 0 && isOnline {
+			if pct, ok := store.MemUsedPct(n.LastMetrics); ok {
+				alerted := n.AlertedMemFullAt != nil
+				switch {
+				case !alerted && pct >= memPct:
+					out = append(out, event{
+						NodeID:  n.ID,
+						Kind:    kindMem,
+						Raise:   true,
+						Subject: fmt.Sprintf("[logos] node %s high memory usage (%.0f%%)", n.Name, pct),
+						Text: fmt.Sprintf("Node %q (%s, %s) memory usage is %.1f%% (threshold %.0f%%).",
+							n.Name, n.Hostname, n.ID, pct, memPct),
+					})
+				case alerted && pct < memPct-diskClearMargin:
+					out = append(out, event{
+						NodeID:  n.ID,
+						Kind:    kindMem,
+						Raise:   false,
+						Subject: fmt.Sprintf("[logos] node %s memory usage back to normal (%.0f%%)", n.Name, pct),
+						Text: fmt.Sprintf("Node %q (%s, %s) memory usage fell to %.1f%% (below %.0f%%).",
+							n.Name, n.Hostname, n.ID, pct, memPct-diskClearMargin),
+					})
+				}
+			}
+		}
 	}
 	return out
 }
@@ -227,6 +256,7 @@ type Watcher struct {
 	Notifiers    []Notifier
 	OfflineAfter time.Duration
 	DiskPct      float64 // low-flash threshold in percent; 0 disables
+	MemPct       float64 // memory-pressure threshold in percent; 0 disables
 	Interval     time.Duration
 	Log          *slog.Logger
 
@@ -242,7 +272,7 @@ func (w *Watcher) Run(ctx context.Context) {
 		w.now = time.Now
 	}
 	w.Log.Info("alerting enabled",
-		"offline_after", w.OfflineAfter, "disk_pct", w.DiskPct, "sinks", w.sinkNames())
+		"offline_after", w.OfflineAfter, "disk_pct", w.DiskPct, "mem_pct", w.MemPct, "sinks", w.sinkNames())
 	t := time.NewTicker(w.Interval)
 	defer t.Stop()
 	for {
@@ -275,7 +305,7 @@ func (w *Watcher) scan(ctx context.Context) {
 	for _, n := range nodes {
 		online[n.ID] = w.IsOnline(n.ID)
 	}
-	for _, ev := range decide(nodes, online, w.OfflineAfter, w.DiskPct, w.now()) {
+	for _, ev := range decide(nodes, online, w.OfflineAfter, w.DiskPct, w.MemPct, w.now()) {
 		// Flip the mark first: a duplicate alert is worse than a missed one
 		// (the next transition re-alerts anyway).
 		var err error
@@ -284,6 +314,8 @@ func (w *Watcher) scan(ctx context.Context) {
 			err = w.Store.SetNodeOfflineAlerted(ctx, ev.NodeID, ev.Raise)
 		case kindDisk:
 			err = w.Store.SetNodeDiskFullAlerted(ctx, ev.NodeID, ev.Raise)
+		case kindMem:
+			err = w.Store.SetNodeMemFullAlerted(ctx, ev.NodeID, ev.Raise)
 		}
 		if err != nil {
 			w.Log.Error("alert state", "node", ev.NodeID, "kind", ev.Kind, "err", err)

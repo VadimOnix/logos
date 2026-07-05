@@ -29,6 +29,8 @@ type Node struct {
 	// AlertedDiskFullAt is set while a low-flash alert for the node is
 	// outstanding (F11); cleared when usage falls back below the threshold.
 	AlertedDiskFullAt *time.Time `json:"-"`
+	// AlertedMemFullAt is the memory-pressure counterpart of AlertedDiskFullAt.
+	AlertedMemFullAt *time.Time `json:"-"`
 	// ConfigBaselineHash is the accepted `uci export` fingerprint for drift
 	// detection (v1.0); nil until the node first reports one.
 	ConfigBaselineHash *string `json:"-"`
@@ -44,13 +46,13 @@ type NodeInfo struct {
 
 const nodeCols = `id, name, public_key, hostname, agent_version, os_version, arch,
 	status, enrolled_at, left_at, last_seen_at, last_metrics, alerted_offline_at,
-	alerted_diskfull_at, config_baseline_hash`
+	alerted_diskfull_at, alerted_memfull_at, config_baseline_hash`
 
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	n := &Node{}
 	err := row.Scan(&n.ID, &n.Name, &n.PublicKey, &n.Hostname, &n.AgentVersion,
 		&n.OSVersion, &n.Arch, &n.Status, &n.EnrolledAt, &n.LeftAt, &n.LastSeenAt, &n.LastMetrics,
-		&n.AlertedOfflineAt, &n.AlertedDiskFullAt, &n.ConfigBaselineHash)
+		&n.AlertedOfflineAt, &n.AlertedDiskFullAt, &n.AlertedMemFullAt, &n.ConfigBaselineHash)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -145,6 +147,17 @@ func (s *Store) SetNodeDiskFullAlerted(ctx context.Context, id string, alerted b
 	q := `update nodes set alerted_diskfull_at = now() where id = $1`
 	if !alerted {
 		q = `update nodes set alerted_diskfull_at = null where id = $1`
+	}
+	_, err := s.pool.Exec(ctx, q, id)
+	return err
+}
+
+// SetNodeMemFullAlerted records or clears the outstanding memory-pressure
+// alert mark, mirroring SetNodeDiskFullAlerted.
+func (s *Store) SetNodeMemFullAlerted(ctx context.Context, id string, alerted bool) error {
+	q := `update nodes set alerted_memfull_at = now() where id = $1`
+	if !alerted {
+		q = `update nodes set alerted_memfull_at = null where id = $1`
 	}
 	_, err := s.pool.Exec(ctx, q, id)
 	return err
