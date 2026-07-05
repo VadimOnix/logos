@@ -156,6 +156,13 @@ Shipped after MVP completion, in small increments:
 - **Overlay DNS** — every overlay member resolves as
   `<node>.<overlay>.logos` on member devices: the sync spec carries a hosts
   list, the agent publishes it via `/tmp/hosts` (picked up by dnsmasq).
+- **Config templates with variables** — named UCI change lists with
+  `${var}` placeholders (builtin `${node.name}`/`${node.id}`), rendered
+  per node and applied to a node set through the same versioned
+  auto-revert machinery; managed from the panel.
+- **End-to-end smoke in CI** — every PR boots the real server + a real
+  agent over mTLS against Postgres and drives enrollment, stats, bulk ops,
+  drift and audit through the public API (`scripts/smoke.sh`).
 - **Ops hardening** — `/readyz` readiness probe (DB ping) wired into the
   compose healthcheck, and a production Caddy overlay with automatic HTTPS.
 
