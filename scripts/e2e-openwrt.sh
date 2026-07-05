@@ -52,6 +52,11 @@ docker rm -f "$CONTAINER" > /dev/null 2>&1 || true
 docker run -d --name "$CONTAINER" --network host \
   -v "$TMP/logos-agent:/usr/bin/logos-agent:ro" \
   "$IMAGE" sleep 2147483647 > /dev/null
+# The rootfs image hasn't gone through first boot (no procd/uci-defaults),
+# so /etc/config/system doesn't exist yet. Seed the minimal config the test
+# touches — exactly what a first boot would have generated.
+docker exec "$CONTAINER" sh -c \
+  'mkdir -p /etc/config && printf "config system\n\toption hostname e2e-node\n" > /etc/config/system'
 docker exec "$CONTAINER" uci get system.@system[0].hostname > /dev/null \
   || fail "container has no working uci — wrong image?"
 
