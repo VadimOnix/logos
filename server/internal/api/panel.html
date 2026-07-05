@@ -34,12 +34,13 @@
 
 <header>
   <div><h1>Logos</h1><div class="muted">control plane · MVP</div></div>
-  <div id="whoami" class="row" hidden><span class="muted" id="me-email"></span><button id="logout">Log out</button></div>
+  <div id="whoami" class="row" hidden><span class="muted" id="me-email"></span><button id="totp-toggle"></button><button id="logout">Log out</button></div>
 </header>
 
 <form class="login" id="login" hidden>
   <input type="email" id="email" placeholder="email" autocomplete="username" required>
   <input type="password" id="password" placeholder="password" autocomplete="current-password" required>
+  <input id="totp" placeholder="2FA code" inputmode="numeric" autocomplete="one-time-code" hidden>
   <button class="primary" type="submit">Log in</button>
   <div class="error" id="login-error"></div>
 </form>
@@ -251,15 +252,51 @@ async function refreshNodes() {
   }));
 }
 
+function setTOTPButton(enabled) {
+  $('totp-toggle').textContent = enabled ? '2FA: on' : '2FA: off';
+  $('totp-toggle').dataset.enabled = enabled ? '1' : '';
+}
+
 $('login').onsubmit = async (e) => {
   e.preventDefault();
   $('login-error').textContent = '';
   try {
-    const me = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email: $('email').value, password: $('password').value }) });
+    const me = await api('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({
+      email: $('email').value, password: $('password').value, totp_code: $('totp').value.trim() }) });
     $('me-email').textContent = me.email;
+    $('totp').hidden = true; $('totp').value = '';
+    const fresh = await api('/api/v1/me').catch(() => null);
+    setTOTPButton(!!(fresh && fresh.totp_enabled));
     show(true);
     refreshNodes().then(refreshOverlays).then(refreshStats);
-  } catch (err) { $('login-error').textContent = err.message; }
+  } catch (err) {
+    if (err.message === 'totp_required') {
+      $('totp').hidden = false;
+      $('totp').focus();
+      $('login-error').textContent = 'Enter the code from your authenticator app.';
+    } else {
+      $('login-error').textContent = err.message;
+    }
+  }
+};
+
+$('totp-toggle').onclick = async () => {
+  try {
+    if ($('totp-toggle').dataset.enabled) {
+      const code = prompt('Enter a current 2FA code to disable two-factor auth:');
+      if (!code) return;
+      await api('/api/v1/me/totp/disable', { method: 'POST', body: JSON.stringify({ code: code.trim() }) });
+      setTOTPButton(false);
+    } else {
+      const s = await api('/api/v1/me/totp/setup', { method: 'POST', body: JSON.stringify({}) });
+      const code = prompt(
+        'Add this secret to your authenticator app (or import the URL), then enter the current code to confirm:\n\n' +
+        'Secret: ' + s.secret + '\n' + s.otpauth_url + '\n');
+      if (!code) return;
+      await api('/api/v1/me/totp/enable', { method: 'POST', body: JSON.stringify({ secret: s.secret, code: code.trim() }) });
+      setTOTPButton(true);
+    }
+  } catch (err) { alert(err.message); }
 };
 
 $('logout').onclick = async () => { await api('/api/v1/auth/logout', { method: 'POST' }).catch(() => {}); show(false); };
@@ -632,6 +669,7 @@ $('new-code').onclick = async () => {
   try {
     const me = await api('/api/v1/me');
     $('me-email').textContent = me.email;
+    setTOTPButton(!!me.totp_enabled);
     show(true);
     refreshNodes().then(refreshOverlays).then(refreshStats);
   } catch { show(false); }
