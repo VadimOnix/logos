@@ -40,11 +40,14 @@ type overlaySpec struct {
 	Address    string        `json:"address"`
 	ListenPort int           `json:"listen_port"`
 	Peers      []overlayPeer `json:"peers"`
+	// Hosts are overlay-DNS names published via dnsmasq (v1.0); optional.
+	Hosts []overlayHost `json:"hosts,omitempty"`
 }
 
 var (
 	overlayIfaceRe    = regexp.MustCompile(`^logos\d{1,9}$`)
 	overlayEndpointRe = regexp.MustCompile(`^[A-Za-z0-9._:\[\]-]+$`)
+	overlayHostRe     = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,250}[a-z0-9])?$`)
 )
 
 const maxOverlayPeers = 250
@@ -125,6 +128,17 @@ func (s *overlaySpec) validate() error {
 			if _, err := netip.ParsePrefix(a); err != nil {
 				return fmt.Errorf("peer %d: invalid allowed ip %q", i, a)
 			}
+		}
+	}
+	if len(s.Hosts) > 2*maxOverlayPeers {
+		return fmt.Errorf("too many hosts (%d)", len(s.Hosts))
+	}
+	for i, h := range s.Hosts {
+		if !overlayHostRe.MatchString(h.Name) {
+			return fmt.Errorf("host %d: invalid name %q", i, h.Name)
+		}
+		if a, err := netip.ParseAddr(h.IP); err != nil || !a.Is4() {
+			return fmt.Errorf("host %d: invalid ip %q", i, h.IP)
 		}
 	}
 	return nil
@@ -359,6 +373,9 @@ func handleOverlaySync(ctx context.Context, params json.RawMessage) (any, error)
 	if err != nil {
 		return nil, err
 	}
+	// Overlay DNS is best-effort: a hosts-file problem must not fail the
+	// tunnel sync itself.
+	writeOverlayHosts(spec.Iface, spec.Hosts)
 	reloadServices()
 	return map[string]string{"public_key": pub}, nil
 }
@@ -404,6 +421,7 @@ func handleOverlayReconcile(ctx context.Context, params json.RawMessage) (any, e
 			if err := removeOverlay(ctx, uciBin, iface); err != nil {
 				return nil, err
 			}
+			writeOverlayHosts(iface, nil)
 			removed = append(removed, iface)
 		}
 	}
@@ -413,6 +431,7 @@ func handleOverlayReconcile(ctx context.Context, params json.RawMessage) (any, e
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", p.Overlays[i].Iface, err)
 		}
+		writeOverlayHosts(p.Overlays[i].Iface, p.Overlays[i].Hosts)
 		keys[p.Overlays[i].Iface] = pub
 	}
 	if len(removed) > 0 || len(p.Overlays) > 0 {
@@ -442,6 +461,7 @@ func handleOverlayRemove(ctx context.Context, params json.RawMessage) (any, erro
 	if err := removeOverlay(ctx, uciBin, p.Iface); err != nil {
 		return nil, err
 	}
+	writeOverlayHosts(p.Iface, nil)
 	overlayKeys.Lock()
 	delete(overlayKeys.m, p.Iface)
 	overlayKeys.Unlock()
