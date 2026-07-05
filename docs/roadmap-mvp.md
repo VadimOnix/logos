@@ -160,16 +160,26 @@ Shipped after MVP completion, in small increments:
   `${var}` placeholders (builtin `${node.name}`/`${node.id}`), rendered
   per node and applied to a node set through the same versioned
   auto-revert machinery; managed from the panel.
+- **Hub-and-spoke overlay topology** — `POST /overlays/{id}/hub` designates
+  a relay member: spokes peer only with the hub and route the whole overlay
+  through it (the "relay fallback" path for peers behind hard NAT); mesh
+  stays the default.
+- **Firmware upgrade orchestration** — `POST /nodes/{id}/firmware`
+  {url, sha256}: the agent downloads, verifies the hash (a mismatch never
+  flashes), acknowledges, then hands off to `sysupgrade` with config
+  preserved; the node reconnects with its existing identity.
 - **End-to-end smoke in CI** — every PR boots the real server + a real
   agent over mTLS against Postgres and drives enrollment, stats, bulk ops,
   drift and audit through the public API (`scripts/smoke.sh`).
 - **Ops hardening** — `/readyz` readiness probe (DB ping) wired into the
   compose healthcheck, and a production Caddy overlay with automatic HTTPS.
 
-## Explicitly deferred (not MVP)
+## Still open from PRD §5.2 (the big rocks)
 
-Multi-tenancy/RBAC, templates & drift, firmware orchestration, overlay ACLs/DNS,
-OIDC/SSO, hosted image builder, GUI adoption app, cloud billing — all v1.0+ (PRD §5.2).
+Multi-tenancy/RBAC (touches every table and endpoint — needs an org-model
+decision first), OIDC/SSO login (security-critical, wants review), pairwise
+overlay ACLs, pre-registered/batch enrollment, hosted image-builder service,
+GUI adoption app, Logos Cloud billing.
 
 ---
 
