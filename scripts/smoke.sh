@@ -46,7 +46,10 @@ cat > "$TMP/bin/opkg" <<'STUB'
 [ "${1:-}" = list-installed ] && { echo "base-files - 1500"; exit 0; }
 exit 0
 STUB
-chmod +x "$TMP/bin/uci" "$TMP/bin/opkg"
+# wg is only LookPath'd as an overlay prerequisite; key generation is
+# in-process in the agent.
+printf '#!/bin/sh\nexit 0\n' > "$TMP/bin/wg"
+chmod +x "$TMP/bin/uci" "$TMP/bin/opkg" "$TMP/bin/wg"
 export PATH="$TMP/bin:$PATH"
 
 say "start control plane"
@@ -128,6 +131,41 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 [ "$STATUS" = confirmed ] || fail "change never confirmed (status: $STATUS)"
+
+say "overlay: create, join, first sync reports the device key"
+OV=$($CURL -X POST "$API/api/v1/overlays" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-mesh","cidr":"100.90.0.0/24"}')
+OVID=$(jq -r .id <<< "$OV")
+[ -n "$OVID" ] && [ "$OVID" != null ] || fail "overlay not created: $OV"
+$CURL -X POST "$API/api/v1/overlays/$OVID/members" -H 'Content-Type: application/json' \
+  -d "{\"node_id\":\"$NODE\"}" > /dev/null
+
+KEY=""
+for _ in $(seq 1 40); do
+  KEY=$($CURL "$API/api/v1/overlays" | jq -r --argjson id "$OVID" \
+    '.[] | select(.id == $id) | .members[0] | select(.sync_error == null or .sync_error == "") | .public_key // empty')
+  [ -n "$KEY" ] && break
+  sleep 0.5
+done
+[ -n "$KEY" ] || fail "overlay member never synced a public key"
+
+say "overlay DNS hosts file published by the agent"
+HOSTS=""
+for _ in $(seq 1 20); do
+  HOSTS=$(cat "/tmp/hosts/logos$OVID" 2>/dev/null || true)
+  [ -n "$HOSTS" ] && break
+  sleep 0.5
+done
+grep -q "smoke-mesh.logos" <<< "$HOSTS" || fail "overlay hosts file missing or wrong: $HOSTS"
+
+say "overlay delete tears down and unpublishes DNS"
+$CURL -X DELETE "$API/api/v1/overlays/$OVID" > /dev/null
+GONE=""
+for _ in $(seq 1 30); do
+  [ ! -e "/tmp/hosts/logos$OVID" ] && GONE=1 && break
+  sleep 0.5
+done
+[ -n "$GONE" ] || fail "overlay hosts file survived overlay deletion"
 
 say "audit trail recorded the session"
 AUDIT=$($CURL "$API/api/v1/audit")
