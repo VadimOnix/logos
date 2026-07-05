@@ -343,7 +343,7 @@ type uciConfirmParams struct {
 
 // handleUCIConfirm makes an applied change permanent: the server only calls
 // this once it can still reach the node, which is the connectivity proof.
-func handleUCIConfirm(_ context.Context, params json.RawMessage) (any, error) {
+func handleUCIConfirm(ctx context.Context, params json.RawMessage) (any, error) {
 	var p uciConfirmParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
@@ -358,7 +358,9 @@ func handleUCIConfirm(_ context.Context, params json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("no pending apply with id %q", p.ApplyID)
 	}
 	clearPendingLocked()
-	return map[string]string{"confirmed": p.ApplyID}, nil
+	// The post-change hash lets the server re-baseline drift detection to
+	// the state this confirmed change produced.
+	return map[string]string{"confirmed": p.ApplyID, "config_hash": configHash(ctx)}, nil
 }
 
 // handleUCIRestore applies stored snapshots (server-side rollback of a past

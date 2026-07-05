@@ -74,3 +74,14 @@ func TestDeriveSampleZeroTotals(t *testing.T) {
 	}
 	// InsertMetricSample guards on >0; nothing to divide here.
 }
+
+func TestConfigHashFromMetrics(t *testing.T) {
+	if h := ConfigHashFromMetrics([]byte(`{"load1":1,"config_hash":"abc"}`)); h != "abc" {
+		t.Errorf("got %q, want abc", h)
+	}
+	for _, raw := range [][]byte{nil, []byte(`{}`), []byte(`not json`)} {
+		if h := ConfigHashFromMetrics(raw); h != "" {
+			t.Errorf("%q: got %q, want empty", raw, h)
+		}
+	}
+}

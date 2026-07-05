@@ -29,6 +29,9 @@ type Node struct {
 	// AlertedDiskFullAt is set while a low-flash alert for the node is
 	// outstanding (F11); cleared when usage falls back below the threshold.
 	AlertedDiskFullAt *time.Time `json:"-"`
+	// ConfigBaselineHash is the accepted `uci export` fingerprint for drift
+	// detection (v1.0); nil until the node first reports one.
+	ConfigBaselineHash *string `json:"-"`
 }
 
 type NodeInfo struct {
@@ -41,13 +44,13 @@ type NodeInfo struct {
 
 const nodeCols = `id, name, public_key, hostname, agent_version, os_version, arch,
 	status, enrolled_at, left_at, last_seen_at, last_metrics, alerted_offline_at,
-	alerted_diskfull_at`
+	alerted_diskfull_at, config_baseline_hash`
 
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (*Node, error) {
 	n := &Node{}
 	err := row.Scan(&n.ID, &n.Name, &n.PublicKey, &n.Hostname, &n.AgentVersion,
 		&n.OSVersion, &n.Arch, &n.Status, &n.EnrolledAt, &n.LeftAt, &n.LastSeenAt, &n.LastMetrics,
-		&n.AlertedOfflineAt, &n.AlertedDiskFullAt)
+		&n.AlertedOfflineAt, &n.AlertedDiskFullAt, &n.ConfigBaselineHash)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -144,6 +147,14 @@ func (s *Store) SetNodeDiskFullAlerted(ctx context.Context, id string, alerted b
 		q = `update nodes set alerted_diskfull_at = null where id = $1`
 	}
 	_, err := s.pool.Exec(ctx, q, id)
+	return err
+}
+
+// SetNodeConfigBaseline records the accepted config fingerprint for drift
+// detection (v1.0): on first contact, after a confirmed Logos change, or
+// when the operator accepts the current state.
+func (s *Store) SetNodeConfigBaseline(ctx context.Context, id, hash string) error {
+	_, err := s.pool.Exec(ctx, `update nodes set config_baseline_hash = $2 where id = $1`, id, hash)
 	return err
 }
 

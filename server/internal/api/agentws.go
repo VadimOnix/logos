@@ -257,6 +257,17 @@ func (s *Server) serveAgentWS(w http.ResponseWriter, r *http.Request, node *stor
 			go s.reconcileNodeOverlays(node.ID)
 		case msgHeartbeat:
 			err = s.store.TouchNode(ctx, node.ID, msg.Metrics)
+			// First reported config hash becomes the drift baseline: the
+			// state the node arrived with is what the operator adopted.
+			if node.ConfigBaselineHash == nil {
+				if h := store.ConfigHashFromMetrics(msg.Metrics); h != "" {
+					if berr := s.store.SetNodeConfigBaseline(ctx, node.ID, h); berr != nil {
+						s.log.Warn("set config baseline", "node", node.ID, "err", berr)
+					} else {
+						node.ConfigBaselineHash = &h
+					}
+				}
+			}
 			// Retain a history sample for charts (F6); best-effort, never
 			// fails the heartbeat.
 			if serr := s.store.InsertMetricSample(ctx, node.ID, msg.Metrics); serr != nil {

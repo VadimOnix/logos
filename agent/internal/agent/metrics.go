@@ -1,11 +1,13 @@
 package agent
 
 import (
+	"context"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Metrics is the heartbeat payload: cheap, dependency-free readings from
@@ -24,6 +26,9 @@ type Metrics struct {
 	Interfaces     []IfaceStats `json:"interfaces,omitempty"`
 	DHCPClients    []DHCPClient `json:"dhcp_clients,omitempty"`
 	WifiClients    []WifiClient `json:"wifi_clients,omitempty"`
+	// ConfigHash fingerprints `uci export` for drift detection (v1.0);
+	// omitted on non-UCI systems.
+	ConfigHash string `json:"config_hash,omitempty"`
 }
 
 // IfaceStats are cumulative counters from /proc/net/dev (F6: traffic per
@@ -86,6 +91,9 @@ func CollectMetrics() Metrics {
 	m.Interfaces = readIfaceStats("/proc/net/dev")
 	m.DHCPClients = readDHCPLeases("/tmp/dhcp.leases")
 	m.WifiClients = collectWirelessClients()
+	hashCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	m.ConfigHash = configHash(hashCtx)
+	cancel()
 	return m
 }
 

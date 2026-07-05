@@ -23,6 +23,10 @@ type nodeView struct {
 	LeftAt       *time.Time      `json:"left_at,omitempty"`
 	LastSeenAt   *time.Time      `json:"last_seen_at,omitempty"`
 	Metrics      json.RawMessage `json:"metrics,omitempty"`
+	// ConfigDrift is true when the live config fingerprint differs from the
+	// accepted baseline — the config changed outside Logos (v1.0 drift
+	// detection).
+	ConfigDrift bool `json:"config_drift,omitempty"`
 }
 
 func (s *Server) nodeView(n *store.Node) nodeView {
@@ -46,7 +50,19 @@ func (s *Server) nodeView(n *store.Node) nodeView {
 	default:
 		v.Status = "offline"
 	}
+	v.ConfigDrift = configDrift(n.ConfigBaselineHash, n.LastMetrics)
 	return v
+}
+
+// configDrift compares the accepted baseline against the hash in the latest
+// heartbeat. No baseline or no reported hash means "no drift" — absence of
+// evidence, not evidence of change.
+func configDrift(baseline *string, lastMetrics []byte) bool {
+	if baseline == nil {
+		return false
+	}
+	current := store.ConfigHashFromMetrics(lastMetrics)
+	return current != "" && current != *baseline
 }
 
 func (s *Server) handleListNodes(w http.ResponseWriter, r *http.Request, _ *store.User) {
@@ -92,6 +108,33 @@ func (s *Server) handleRemoveNode(w http.ResponseWriter, r *http.Request, u *sto
 	s.audit(r.Context(), u, "node.remove", id, "")
 	s.log.Info("node removed from management", "node", id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "left"})
+}
+
+// handleAcceptConfigBaseline adopts the node's current config as the new
+// drift baseline — the operator reviewed the out-of-band change and blessed
+// it (v1.0 drift detection).
+func (s *Server) handleAcceptConfigBaseline(w http.ResponseWriter, r *http.Request, u *store.User) {
+	id := r.PathValue("id")
+	n, err := s.store.GetNode(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		httpError(w, http.StatusNotFound, "node not found")
+		return
+	}
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	current := store.ConfigHashFromMetrics(n.LastMetrics)
+	if current == "" {
+		httpError(w, http.StatusConflict, "node has not reported a config fingerprint yet")
+		return
+	}
+	if err := s.store.SetNodeConfigBaseline(r.Context(), id, current); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	s.audit(r.Context(), u, "config.baseline_accept", id, "")
+	writeJSON(w, http.StatusOK, map[string]any{"config_drift": false})
 }
 
 // handleDeleteNode erases the node record (server-side data deletion, PRD §4.4).
