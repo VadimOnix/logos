@@ -46,12 +46,26 @@ func packageMethod(action, name string) (string, error) {
 	return method, nil
 }
 
-// POST /api/v1/nodes/packages/bulk {action, name?, node_ids}
+// splitCanary partitions the node list for a staged rollout: the first
+// `canary` nodes run before anyone else. A canary of 0 (or one covering the
+// whole list) means a single unstaged batch.
+func splitCanary(ids []string, canary int) (first, rest []string) {
+	if canary <= 0 || canary >= len(ids) {
+		return ids, nil
+	}
+	return ids[:canary], ids[canary:]
+}
+
+// POST /api/v1/nodes/packages/bulk {action, name?, node_ids, canary?}
 func (s *Server) handleBulkPackageAction(w http.ResponseWriter, r *http.Request, u *store.User) {
 	var req struct {
 		Action  string   `json:"action"`
 		Name    string   `json:"name"`
 		NodeIDs []string `json:"node_ids"`
+		// Canary > 0 stages the rollout: the first N nodes run alone, and
+		// any canary failure skips the remaining nodes (PRD §5.2 "staged
+		// rollout").
+		Canary int `json:"canary"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -70,37 +84,70 @@ func (s *Server) handleBulkPackageAction(w http.ResponseWriter, r *http.Request,
 		httpError(w, http.StatusBadRequest, fmt.Sprintf("at most %d nodes per request", bulkLimit))
 		return
 	}
+	if req.Canary < 0 {
+		httpError(w, http.StatusBadRequest, "canary must be >= 0")
+		return
+	}
 
 	params := map[string]string{"name": req.Name}
-	results := make([]bulkNodeResult, len(req.NodeIDs))
+	first, rest := splitCanary(req.NodeIDs, req.Canary)
+	results := s.runBulk(r.Context(), first, method, params)
+
+	aborted := false
+	if rest != nil {
+		if countOK(results) < len(results) {
+			// A canary failed: leave the rest of the fleet untouched.
+			aborted = true
+			for _, id := range rest {
+				results = append(results, bulkNodeResult{NodeID: id, Error: "skipped: canary stage failed"})
+			}
+		} else {
+			results = append(results, s.runBulk(r.Context(), rest, method, params)...)
+		}
+	}
+
+	okCount := countOK(results)
+	detail := fmt.Sprintf("%d/%d nodes ok", okCount, len(results))
+	if aborted {
+		detail += " (canary failed, rollout aborted)"
+	}
+	s.audit(r.Context(), u, "package.bulk_"+req.Action, req.Name, detail)
+	s.log.Info("bulk package action", "action", req.Action, "pkg", req.Name,
+		"nodes", len(results), "ok", okCount, "aborted", aborted)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok_count": okCount,
+		"total":    len(results),
+		"aborted":  aborted,
+		"results":  results,
+	})
+}
+
+// runBulk fans one batch out with bounded concurrency, preserving order.
+func (s *Server) runBulk(ctx context.Context, ids []string, method string, params any) []bulkNodeResult {
+	results := make([]bulkNodeResult, len(ids))
 	sem := make(chan struct{}, bulkConcurrency)
 	var wg sync.WaitGroup
-	for i, id := range req.NodeIDs {
+	for i, id := range ids {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			results[i] = s.bulkCallNode(r.Context(), id, method, params)
+			results[i] = s.bulkCallNode(ctx, id, method, params)
 		}()
 	}
 	wg.Wait()
+	return results
+}
 
-	okCount := 0
+func countOK(results []bulkNodeResult) int {
+	n := 0
 	for _, res := range results {
 		if res.OK {
-			okCount++
+			n++
 		}
 	}
-	s.audit(r.Context(), u, "package.bulk_"+req.Action, req.Name,
-		fmt.Sprintf("%d/%d nodes ok", okCount, len(results)))
-	s.log.Info("bulk package action", "action", req.Action, "pkg", req.Name,
-		"nodes", len(results), "ok", okCount)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"ok_count": okCount,
-		"total":    len(results),
-		"results":  results,
-	})
+	return n
 }
 
 // bulkCallNode runs one node's share of a bulk action, mapping every failure
