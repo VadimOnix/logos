@@ -10,6 +10,8 @@ type User struct {
 	Email        string
 	PasswordHash string
 	CreatedAt    time.Time
+	// TOTPSecret is the base32 TOTP secret when 2FA is enabled, else nil.
+	TOTPSecret *string
 }
 
 func (s *Store) CountUsers(ctx context.Context) (int, error) {
@@ -29,8 +31,8 @@ func (s *Store) CreateUser(ctx context.Context, email, passwordHash string) (*Us
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	u := &User{}
 	err := s.pool.QueryRow(ctx,
-		`select id, email, password_hash, created_at from users where email = $1`, email).
-		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+		`select id, email, password_hash, created_at, totp_secret from users where email = $1`, email).
+		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt, &u.TOTPSecret)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -40,8 +42,8 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (*User, error)
 func (s *Store) GetUser(ctx context.Context, id int64) (*User, error) {
 	u := &User{}
 	err := s.pool.QueryRow(ctx,
-		`select id, email, password_hash, created_at from users where id = $1`, id).
-		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+		`select id, email, password_hash, created_at, totp_secret from users where id = $1`, id).
+		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt, &u.TOTPSecret)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -61,10 +63,10 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash []byte, userID int6
 func (s *Store) GetSessionUser(ctx context.Context, tokenHash []byte) (*User, error) {
 	u := &User{}
 	err := s.pool.QueryRow(ctx,
-		`select u.id, u.email, u.password_hash, u.created_at
+		`select u.id, u.email, u.password_hash, u.created_at, u.totp_secret
 		   from sessions s join users u on u.id = s.user_id
 		  where s.token_hash = $1 and s.expires_at > now()`, tokenHash).
-		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt, &u.TOTPSecret)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -123,8 +125,8 @@ func (s *Store) GetAPITokenUser(ctx context.Context, tokenHash []byte) (*User, e
 		`update api_tokens t set last_used_at = now()
 		   from users u
 		  where t.token_hash = $1 and u.id = t.user_id
-		 returning u.id, u.email, u.password_hash, u.created_at`, tokenHash).
-		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt)
+		 returning u.id, u.email, u.password_hash, u.created_at, u.totp_secret`, tokenHash).
+		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.CreatedAt, &u.TOTPSecret)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -140,4 +142,10 @@ func (s *Store) DeleteAPIToken(ctx context.Context, userID, id int64) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// SetUserTOTPSecret enables (non-nil) or disables (nil) TOTP for a user.
+func (s *Store) SetUserTOTPSecret(ctx context.Context, userID int64, secret *string) error {
+	_, err := s.pool.Exec(ctx, `update users set totp_secret = $2 where id = $1`, userID, secret)
+	return err
 }

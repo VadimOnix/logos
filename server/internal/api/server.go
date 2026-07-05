@@ -75,6 +75,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
 	mux.Handle("GET /api/v1/me", s.requireUser(s.handleMe))
+	mux.Handle("POST /api/v1/me/totp/setup", s.requireUser(s.handleTOTPSetup))
+	mux.Handle("POST /api/v1/me/totp/enable", s.requireUser(s.handleTOTPEnable))
+	mux.Handle("POST /api/v1/me/totp/disable", s.requireUser(s.handleTOTPDisable))
 
 	// API tokens
 	mux.Handle("GET /api/v1/tokens", s.requireUser(s.handleListTokens))

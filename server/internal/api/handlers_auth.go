@@ -19,6 +19,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
+		TOTPCode string `json:"totp_code"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -39,6 +40,18 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !auth.CheckPassword(u.PasswordHash, req.Password) {
 		httpError(w, http.StatusUnauthorized, "invalid email or password")
 		return
+	}
+	// Second factor, only after the password checks out — so this endpoint
+	// never reveals whether 2FA is enabled for an unauthenticated guess.
+	if u.TOTPSecret != nil {
+		if strings.TrimSpace(req.TOTPCode) == "" {
+			httpError(w, http.StatusUnauthorized, "totp_required")
+			return
+		}
+		if !auth.CheckTOTP(*u.TOTPSecret, strings.TrimSpace(req.TOTPCode), time.Now()) {
+			httpError(w, http.StatusUnauthorized, "invalid two-factor code")
+			return
+		}
 	}
 
 	token := auth.NewToken()
@@ -71,7 +84,69 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request, u *store.User) {
-	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "email": u.Email})
+	writeJSON(w, http.StatusOK, map[string]any{"id": u.ID, "email": u.Email, "totp_enabled": u.TOTPSecret != nil})
+}
+
+// Two-factor auth (v1.0 "2FA"): setup hands out a candidate secret; enable
+// persists it only after the user proves possession with a valid code, so
+// there is no half-enrolled state that could lock anyone out.
+
+func (s *Server) handleTOTPSetup(w http.ResponseWriter, r *http.Request, u *store.User) {
+	secret := auth.NewTOTPSecret()
+	writeJSON(w, http.StatusOK, map[string]string{
+		"secret":      secret,
+		"otpauth_url": auth.OTPAuthURL(secret, u.Email),
+	})
+}
+
+func (s *Server) handleTOTPEnable(w http.ResponseWriter, r *http.Request, u *store.User) {
+	var req struct {
+		Secret string `json:"secret"`
+		Code   string `json:"code"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if u.TOTPSecret != nil {
+		httpError(w, http.StatusConflict, "two-factor auth is already enabled")
+		return
+	}
+	if !auth.CheckTOTP(strings.TrimSpace(req.Secret), strings.TrimSpace(req.Code), time.Now()) {
+		httpError(w, http.StatusBadRequest, "code does not match the secret — check the authenticator entry")
+		return
+	}
+	secret := strings.TrimSpace(req.Secret)
+	if err := s.store.SetUserTOTPSecret(r.Context(), u.ID, &secret); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	s.audit(r.Context(), u, "totp.enable", "", "")
+	writeJSON(w, http.StatusOK, map[string]bool{"totp_enabled": true})
+}
+
+func (s *Server) handleTOTPDisable(w http.ResponseWriter, r *http.Request, u *store.User) {
+	var req struct {
+		Code string `json:"code"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if u.TOTPSecret == nil {
+		httpError(w, http.StatusConflict, "two-factor auth is not enabled")
+		return
+	}
+	// Disabling requires a current code, so a hijacked session alone
+	// cannot silently strip the second factor.
+	if !auth.CheckTOTP(*u.TOTPSecret, strings.TrimSpace(req.Code), time.Now()) {
+		httpError(w, http.StatusBadRequest, "invalid two-factor code")
+		return
+	}
+	if err := s.store.SetUserTOTPSecret(r.Context(), u.ID, nil); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	s.audit(r.Context(), u, "totp.disable", "", "")
+	writeJSON(w, http.StatusOK, map[string]bool{"totp_enabled": false})
 }
 
 // API tokens
