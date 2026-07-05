@@ -67,6 +67,7 @@
     <button id="bulk-install">Install on all online</button>
     <button id="bulk-remove" class="danger">Remove on all online</button>
     <button id="bulk-update">Update lists on all online</button>
+    <label class="muted" style="cursor:pointer"><input type="checkbox" id="bulk-canary" checked> canary first</label>
     <span class="muted" id="bulk-out"></span>
   </div>
 
@@ -322,9 +323,10 @@ async function bulkPkg(action) {
   $('bulk-out').textContent = 'running…';
   try {
     const r = await api('/api/v1/nodes/packages/bulk', {
-      method: 'POST', body: JSON.stringify({ action, name, node_ids: ids }) });
+      method: 'POST', body: JSON.stringify({ action, name, node_ids: ids, canary: $('bulk-canary').checked ? 1 : 0 }) });
     const failed = r.results.filter(x => !x.ok);
     $('bulk-out').textContent = `${r.ok_count}/${r.total} ok` +
+      (r.aborted ? ' — canary failed, rollout aborted' : '') +
       (failed.length ? ' — ' + failed.map(x => `${x.node_id.slice(0, 8)}: ${x.error}`).join('; ') : '');
   } catch (err) { $('bulk-out').textContent = ''; alert(err.message); }
 }

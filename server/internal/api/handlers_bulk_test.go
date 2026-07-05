@@ -24,3 +24,26 @@ func TestPackageMethod(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitCanary(t *testing.T) {
+	ids := []string{"a", "b", "c", "d"}
+	for _, tc := range []struct {
+		canary              int
+		wantFirst, wantRest int
+	}{
+		{0, 4, 0}, // staging off → one batch
+		{1, 1, 3}, // classic canary
+		{3, 3, 1},
+		{4, 4, 0},  // canary covers everything → one batch
+		{99, 4, 0}, // more than the fleet → one batch
+	} {
+		first, rest := splitCanary(ids, tc.canary)
+		if len(first) != tc.wantFirst || len(rest) != tc.wantRest {
+			t.Errorf("canary=%d: got %d/%d, want %d/%d",
+				tc.canary, len(first), len(rest), tc.wantFirst, tc.wantRest)
+		}
+	}
+	if first, rest := splitCanary(nil, 1); len(first) != 0 || rest != nil {
+		t.Errorf("empty list: got %v/%v", first, rest)
+	}
+}
