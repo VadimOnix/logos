@@ -108,10 +108,31 @@ $CURL -X POST "$API/api/v1/nodes/$NODE/config/baseline" -H 'Content-Type: applic
 [ "$($CURL "$API/api/v1/nodes/$NODE" | jq -r '.config_drift // false')" = false ] \
   || fail "drift flag survived baseline accept"
 
+say "config template: create, render with vars, apply through the revert flow"
+TPL=$($CURL -X POST "$API/api/v1/config-templates" -H 'Content-Type: application/json' \
+  -d '{"name":"smoke-tpl","changes":[{"op":"set","key":"system.@system[0].hostname","value":"${node.name}-${suffix}"}]}')
+TPLID=$(jq -r .id <<< "$TPL")
+[ -n "$TPLID" ] && [ "$TPLID" != null ] || fail "template not created: $TPL"
+
+APPLY=$($CURL -X POST "$API/api/v1/config-templates/$TPLID/apply" -H 'Content-Type: application/json' \
+  -d "{\"node_ids\":[\"$NODE\"],\"vars\":{\"suffix\":\"smoke\"},\"revert_timeout_sec\":30}")
+[ "$(jq .ok_count <<< "$APPLY")" = 1 ] || fail "template apply failed: $APPLY"
+CHANGE=$(jq -r '.results[0].change_id' <<< "$APPLY")
+
+say "config change $CHANGE confirms over the live channel"
+STATUS=""
+for _ in $(seq 1 60); do
+  STATUS=$($CURL "$API/api/v1/nodes/$NODE/config/changes" \
+    | jq -r --argjson id "$CHANGE" '.[] | select(.id == $id) | .status')
+  [ "$STATUS" = confirmed ] && break
+  sleep 1
+done
+[ "$STATUS" = confirmed ] || fail "change never confirmed (status: $STATUS)"
+
 say "audit trail recorded the session"
 AUDIT=$($CURL "$API/api/v1/audit")
-[ "$(jq length <<< "$AUDIT")" -ge 4 ] || fail "audit too short: $AUDIT"
-for action in auth.login claimcode.create package.bulk_update config.baseline_accept; do
+[ "$(jq length <<< "$AUDIT")" -ge 6 ] || fail "audit too short: $AUDIT"
+for action in auth.login claimcode.create package.bulk_update config.baseline_accept template.create template.apply; do
   jq -e --arg a "$action" 'map(.action) | index($a) != null' <<< "$AUDIT" > /dev/null \
     || fail "audit missing $action"
 done
