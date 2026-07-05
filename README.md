@@ -135,11 +135,19 @@ make test
 
 ## Status
 
-Working through the [MVP roadmap](docs/roadmap-mvp.md). End-to-end today:
-enrollment (claim codes + per-node mTLS), node registry and live agent
-channel, package management, UCI config push with auto-revert on lost
-connectivity, monitoring in the heartbeat, SSH adoption with pre-adoption
-snapshot, full-cleanup offboarding, and **WireGuard overlay networks v1**
-(server-coordinated full mesh with on-device keys and subnet-router mode).
-Remaining for the MVP: first-run captive portal, image builder wrapper,
-alerts, remote terminal — see the roadmap.
+**The Tier 1 MVP (PRD §5.1, F1–F14) is complete** — see the
+[roadmap](docs/roadmap-mvp.md) for the milestone-by-milestone record.
+End-to-end today: enrollment (claim codes + per-node mTLS, first-run
+setup portal, preseeded images via `logos-imagebuilder`), node registry
+and live agent channel, package management, UCI config push with
+auto-revert on lost connectivity, monitoring with 24h metric history and
+sparklines, offline/low-flash alerts (webhook / Telegram / SMTP),
+audited remote terminal, SSH adoption (single router or fleet CSV/IP
+range) with pre-adoption snapshot, full-cleanup offboarding, and
+**WireGuard overlay networks v1** (server-coordinated full mesh with
+on-device keys, subnet-router mode, and CIDR-overlap protection).
+
+Work has moved on to early v1.0 items (PRD §5.2): fleet stats API with
+panel summary strip and alert badges, a basic audit log with panel
+viewer, and TOTP two-factor login are already in. Production deployment
+ships with a Caddy auto-HTTPS overlay and liveness/readiness probes.

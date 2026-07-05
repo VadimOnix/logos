@@ -1,7 +1,8 @@
 # Logos MVP Roadmap (Tier 1)
 
-> **Status:** Living document · **Date:** 2026-07-04 · Companion to [PRD.md](./PRD.md) §5.1
+> **Status: Tier 1 MVP complete** (all milestones ✅) · **Date:** 2026-07-05 · Companion to [PRD.md](./PRD.md) §5.1
 > Tier 1 = the MVP (v0.x) functional requirements F1–F14: "manage and mesh 10 routers".
+> Current work: early v1.0 slices (PRD §5.2) — see "Post-MVP progress" at the end.
 
 This document breaks the MVP requirement table into buildable milestones and tracks
 what exists in the repository. Priorities and requirement IDs (F1–F14) come from
@@ -30,7 +31,7 @@ enroll into and stay connected to. Everything later builds on this channel.
 - ✅ F5: package management per node — opkg/apk autodetect, list/install/remove/update via RPC + REST + panel.
 - ✅ F6 (partial): interface traffic counters (/proc/net/dev) and DHCP client list (dnsmasq leases) in the heartbeat. `ubus` wireless associations still open.
 - ✅ F4 step 1: read-only `uci export` snapshot via RPC + REST. Write path (set/commit, versioned server-side, rollback with auto-revert watchdog) still open.
-- ✅ F1 (packaging skeleton): OpenWrt feed Makefile + procd init script. Size budget ≤ 1 MB is currently exceeded by Go binaries (~4–5 MB stripped) — mitigation tracked in agent/openwrt/README.md.
+- ✅ F1 (packaging skeleton): OpenWrt feed Makefile + procd init script. The original ≤ 1 MB size budget was later measured, found structurally unreachable, and formally revised — see the M1 exit note below.
 - ✅ F4 write path: `uci set/delete/commit` through the channel — every push is a versioned `config_changes` row with pre-change snapshots; the agent arms an **auto-revert watchdog** (crash/reboot-safe via a persisted pending file) and the server confirms only over a live channel, so a change that breaks connectivity reverts itself; rollback endpoint restores stored snapshots through the same machinery.
 - ✅ mTLS for the agent channel: internal CA on the control plane, per-node client certs issued from a CSR at enrollment (key never leaves the device), dedicated TLS listener with `RequireAndVerifyClientCert`, identity = cert CN (node UUID) re-checked against node status per request (left nodes rejected without a CRL), rotation via `/agent/renew` inside a 30-day window. Token channel remains for pre-cert nodes.
 - ✅ F6: wireless associations via `ubus call iwinfo` in the heartbeat.
@@ -124,8 +125,26 @@ Resolution (both shipped):
 - Agent initiates everything; only outbound 443. No inbound ports on the node.
 - Control plane is never in the data path; its outage degrades management, never connectivity.
 - One server binary (Go) + Postgres. `docker compose up` < 5 minutes is a hard requirement.
-- Agent: Go, single static binary; target ≤ 1 MB flash / ≤ 10 MB RSS (checked in CI from M1).
+- Agent: Go, single static binary; ~3.4 MB gzip / ~2.3 MB with opt-in upx packing (budget revised 2026-07, PRD §6), ≤ 10 MB RSS — sizes reported in CI from M1.
 - Security hygiene is never optional: enrollment codes single-use + expiring, secrets hashed/encrypted at rest, rate-limited enrollment endpoint.
+
+## Post-MVP progress (early v1.0 slices, PRD §5.2)
+
+Shipped after MVP completion, in small increments:
+
+- **Fleet summary** — `GET /api/v1/stats` (node/overlay/alert counters) and a
+  panel summary strip with alert badges.
+- **Telegram alert delivery** — Bot API sink next to webhook/SMTP
+  (`LOGOS_ALERT_TELEGRAM_TOKEN` + `LOGOS_ALERT_TELEGRAM_CHAT`).
+- **Overlay overlap detection** — creating an overlay whose CIDR overlaps an
+  existing one is refused with 409 (ambiguous routes otherwise).
+- **Audit log (CE-basic)** — who/what/when for admin actions (login, tokens,
+  claim codes, nodes, packages, config, overlays, terminal, 2FA), served at
+  `GET /api/v1/audit`, 90-day retention, collapsible panel viewer.
+- **TOTP 2FA** — RFC 6238 second factor on stdlib only: possession-proof
+  enrollment, code-gated disable, progressive login field in the panel.
+- **Ops hardening** — `/readyz` readiness probe (DB ping) wired into the
+  compose healthcheck, and a production Caddy overlay with automatic HTTPS.
 
 ## Explicitly deferred (not MVP)
 
