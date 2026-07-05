@@ -83,6 +83,7 @@ func run(log *slog.Logger) error {
 			Notifiers:    ns,
 			OfflineAfter: cfg.AlertOfflineAfter,
 			DiskPct:      cfg.AlertDiskPct,
+			MemPct:       cfg.AlertMemPct,
 			Interval:     30 * time.Second,
 			Log:          log,
 		}

@@ -85,3 +85,15 @@ func TestConfigHashFromMetrics(t *testing.T) {
 		}
 	}
 }
+
+func TestMemUsedPct(t *testing.T) {
+	pct, ok := MemUsedPct([]byte(`{"mem_total_kb":100000,"mem_available_kb":25000}`))
+	if !ok || pct != 75 {
+		t.Errorf("got %v %v, want 75 true", pct, ok)
+	}
+	for _, raw := range [][]byte{nil, []byte(`{}`), []byte(`bad`)} {
+		if _, ok := MemUsedPct(raw); ok {
+			t.Errorf("%q: ok=true, want false", raw)
+		}
+	}
+}
