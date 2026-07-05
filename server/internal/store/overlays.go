@@ -13,6 +13,10 @@ type Overlay struct {
 	Name      string    `json:"name"`
 	CIDR      string    `json:"cidr"`
 	CreatedAt time.Time `json:"created_at"`
+	// HubNodeID switches the overlay to hub-and-spoke topology: spokes
+	// peer only with this node and route the overlay through it. Nil =
+	// full mesh.
+	HubNodeID *string `json:"hub_node_id,omitempty"`
 }
 
 // OverlayMember is one node's slot in an overlay, joined with the node fields
@@ -35,8 +39,8 @@ type OverlayMember struct {
 func (s *Store) CreateOverlay(ctx context.Context, name, cidr string) (*Overlay, error) {
 	o := &Overlay{}
 	err := s.pool.QueryRow(ctx,
-		`insert into overlays (name, cidr) values ($1, $2) returning id, name, cidr, created_at`,
-		name, cidr).Scan(&o.ID, &o.Name, &o.CIDR, &o.CreatedAt)
+		`insert into overlays (name, cidr) values ($1, $2) returning id, name, cidr, created_at, hub_node_id`,
+		name, cidr).Scan(&o.ID, &o.Name, &o.CIDR, &o.CreatedAt, &o.HubNodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -46,8 +50,8 @@ func (s *Store) CreateOverlay(ctx context.Context, name, cidr string) (*Overlay,
 func (s *Store) GetOverlay(ctx context.Context, id int64) (*Overlay, error) {
 	o := &Overlay{}
 	err := s.pool.QueryRow(ctx,
-		`select id, name, cidr, created_at from overlays where id = $1`, id).
-		Scan(&o.ID, &o.Name, &o.CIDR, &o.CreatedAt)
+		`select id, name, cidr, created_at, hub_node_id from overlays where id = $1`, id).
+		Scan(&o.ID, &o.Name, &o.CIDR, &o.CreatedAt, &o.HubNodeID)
 	if noRows(err) {
 		return nil, ErrNotFound
 	}
@@ -58,7 +62,7 @@ func (s *Store) GetOverlay(ctx context.Context, id int64) (*Overlay, error) {
 }
 
 func (s *Store) ListOverlays(ctx context.Context) ([]*Overlay, error) {
-	rows, err := s.pool.Query(ctx, `select id, name, cidr, created_at from overlays order by id`)
+	rows, err := s.pool.Query(ctx, `select id, name, cidr, created_at, hub_node_id from overlays order by id`)
 	if err != nil {
 		return nil, err
 	}
@@ -66,12 +70,25 @@ func (s *Store) ListOverlays(ctx context.Context) ([]*Overlay, error) {
 	out := []*Overlay{}
 	for rows.Next() {
 		o := &Overlay{}
-		if err := rows.Scan(&o.ID, &o.Name, &o.CIDR, &o.CreatedAt); err != nil {
+		if err := rows.Scan(&o.ID, &o.Name, &o.CIDR, &o.CreatedAt, &o.HubNodeID); err != nil {
 			return nil, err
 		}
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+// SetOverlayHub switches an overlay between hub-and-spoke (node id) and
+// full mesh (nil).
+func (s *Store) SetOverlayHub(ctx context.Context, overlayID int64, nodeID *string) error {
+	tag, err := s.pool.Exec(ctx, `update overlays set hub_node_id = $2 where id = $1`, overlayID, nodeID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) DeleteOverlay(ctx context.Context, id int64) error {

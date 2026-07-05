@@ -112,10 +112,17 @@ func broadcast(p netip.Prefix) netip.Addr {
 	return netip.AddrFrom4(b)
 }
 
-// BuildSync produces the desired interface state for one member: its own
-// address inside the overlay and every *other* member with a known public
-// key as a peer. Members that have not completed their first sync (no key
-// yet) are omitted and picked up by the next pass.
+// BuildSync produces the desired interface state for one member.
+//
+// Mesh (default): every *other* member with a known public key becomes a
+// peer. Hub-and-spoke (o.HubNodeID set): the hub still peers with everyone,
+// but a spoke peers only with the hub and routes the entire overlay CIDR —
+// plus every other member's advertised subnets — through it. WireGuard's
+// cryptokey routing lets the hub relay spoke↔spoke traffic (each spoke's
+// /32 is in that spoke's allowed_ips on the hub), which is the relay path
+// for peers that cannot reach each other directly. Members that have not
+// completed their first sync (no key yet) are omitted and picked up by the
+// next pass.
 func BuildSync(o *store.Overlay, members []*store.OverlayMember, self *store.OverlayMember) SyncParams {
 	prefix, _ := netip.ParsePrefix(o.CIDR)
 	sp := SyncParams{
@@ -124,13 +131,29 @@ func BuildSync(o *store.Overlay, members []*store.OverlayMember, self *store.Ove
 		ListenPort: self.ListenPort,
 		Peers:      []PeerSpec{},
 	}
+	spoke := o.HubNodeID != nil && *o.HubNodeID != self.NodeID
 	for _, m := range members {
 		if m.NodeID == self.NodeID || m.PublicKey == "" || m.NodeStatus != store.NodeStatusEnrolled {
 			continue
 		}
+		if spoke && m.NodeID != *o.HubNodeID {
+			continue // spokes talk only to the hub
+		}
+		allowed := append([]string{m.OverlayIP + "/32"}, m.Subnets...)
+		if spoke {
+			// Everything in the overlay — the hub's own address included —
+			// plus the subnets the other members advertise, all via the hub.
+			allowed = append([]string{prefix.String()}, m.Subnets...)
+			for _, other := range members {
+				if other.NodeID == self.NodeID || other.NodeID == m.NodeID {
+					continue
+				}
+				allowed = append(allowed, other.Subnets...)
+			}
+		}
 		peer := PeerSpec{
 			PublicKey:  m.PublicKey,
-			AllowedIPs: append([]string{m.OverlayIP + "/32"}, m.Subnets...),
+			AllowedIPs: allowed,
 			Keepalive:  keepalive,
 		}
 		if m.NodeAddr != "" {

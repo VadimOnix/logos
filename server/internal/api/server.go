@@ -122,6 +122,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/overlays/{id}/members", s.requireUser(s.handleAddOverlayMember))
 	mux.Handle("DELETE /api/v1/overlays/{id}/members/{node_id}", s.requireUser(s.handleRemoveOverlayMember))
 	mux.Handle("POST /api/v1/overlays/{id}/sync", s.requireUser(s.handleSyncOverlay))
+	mux.Handle("POST /api/v1/overlays/{id}/hub", s.requireUser(s.handleSetOverlayHub))
 
 	// Remote terminal (F10)
 	mux.Handle("GET /api/v1/nodes/{id}/terminal/log", s.requireUser(s.handleTerminalLog))

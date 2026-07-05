@@ -241,6 +241,59 @@ func (s *Server) handleRemoveOverlayMember(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusOK, map[string]string{"removed": nodeID})
 }
 
+// POST /api/v1/overlays/{id}/hub {node_id} — switch to hub-and-spoke with
+// that member as the relay; {"node_id": null} (or empty) restores full mesh.
+func (s *Server) handleSetOverlayHub(w http.ResponseWriter, r *http.Request, u *store.User) {
+	o := s.overlayFromPath(w, r)
+	if o == nil {
+		return
+	}
+	var req struct {
+		NodeID *string `json:"node_id"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if req.NodeID != nil && strings.TrimSpace(*req.NodeID) == "" {
+		req.NodeID = nil
+	}
+	if req.NodeID != nil {
+		members, err := s.store.ListOverlayMembers(r.Context(), o.ID)
+		if err != nil {
+			s.internalError(w, err)
+			return
+		}
+		isMember := false
+		for _, m := range members {
+			if m.NodeID == *req.NodeID && m.NodeStatus == store.NodeStatusEnrolled {
+				isMember = true
+				break
+			}
+		}
+		if !isMember {
+			httpError(w, http.StatusBadRequest, "hub must be an enrolled member of this overlay")
+			return
+		}
+	}
+	if err := s.store.SetOverlayHub(r.Context(), o.ID, req.NodeID); err != nil {
+		s.internalError(w, err)
+		return
+	}
+	// Re-push every member: peer sets change for the whole overlay.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 4*overlaySyncTimeout)
+		defer cancel()
+		s.syncOverlay(ctx, o.ID)
+	}()
+	detail := "mesh"
+	if req.NodeID != nil {
+		detail = "hub " + *req.NodeID
+	}
+	s.audit(r.Context(), u, "overlay.topology", o.Name, detail)
+	s.log.Info("overlay topology changed", "overlay", o.Name, "topology", detail)
+	writeJSON(w, http.StatusOK, map[string]any{"hub_node_id": req.NodeID})
+}
+
 // POST /api/v1/overlays/{id}/sync — manual push, synchronous; returns the
 // resulting member state so the caller sees fresh keys/errors.
 func (s *Server) handleSyncOverlay(w http.ResponseWriter, r *http.Request, _ *store.User) {
