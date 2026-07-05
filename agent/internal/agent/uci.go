@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os/exec"
@@ -14,6 +16,23 @@ import (
 // next roadmap slice and intentionally absent here.
 
 var uciConfigRe = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// configHash fingerprints the full `uci export` output (sha256 hex) — the
+// drift signal reported in heartbeats and after confirmed changes, so the
+// server can tell when config was modified outside Logos (e.g. local LuCI).
+// Empty on non-UCI systems or on error.
+func configHash(ctx context.Context) string {
+	bin, err := exec.LookPath("uci")
+	if err != nil {
+		return ""
+	}
+	out, err := exec.CommandContext(ctx, bin, "export").Output()
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(out)
+	return hex.EncodeToString(sum[:])
+}
 
 type uciExportParams struct {
 	Config string `json:"config,omitempty"`

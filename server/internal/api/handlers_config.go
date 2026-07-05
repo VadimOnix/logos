@@ -172,7 +172,7 @@ func (s *Server) confirmAfterDelay(changeID int64, nodeID string, revertSec int)
 
 	for time.Now().Before(deadline) {
 		callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		_, err := s.hub.Call(callCtx, nodeID, "uci.confirm", map[string]string{"apply_id": applyID})
+		res, err := s.hub.Call(callCtx, nodeID, "uci.confirm", map[string]string{"apply_id": applyID})
 		cancel()
 		if err == nil {
 			if ok, derr := s.store.DecideConfigChange(ctx, changeID, store.ChangeStatusConfirmed, ""); derr != nil {
@@ -180,6 +180,7 @@ func (s *Server) confirmAfterDelay(changeID int64, nodeID string, revertSec int)
 			} else if ok {
 				s.log.Info("config change confirmed", "change", changeID, "node", nodeID)
 			}
+			s.rebaselineFromConfirm(ctx, nodeID, res)
 			return
 		}
 		// Offline or confirm failed — retry until the watchdog window closes;
@@ -192,6 +193,20 @@ func (s *Server) confirmAfterDelay(changeID int64, nodeID string, revertSec int)
 		s.log.Error("decide config change", "change", changeID, "err", err)
 	} else if ok {
 		s.log.Warn("config change reverted", "change", changeID, "node", nodeID)
+	}
+}
+
+// rebaselineFromConfirm re-anchors drift detection to the post-change state:
+// a confirmed Logos change is by definition the new canonical config.
+func (s *Server) rebaselineFromConfirm(ctx context.Context, nodeID string, confirmRes json.RawMessage) {
+	var res struct {
+		ConfigHash string `json:"config_hash"`
+	}
+	if err := json.Unmarshal(confirmRes, &res); err != nil || res.ConfigHash == "" {
+		return // older agent or non-UCI system; the baseline stays as-is
+	}
+	if err := s.store.SetNodeConfigBaseline(ctx, nodeID, res.ConfigHash); err != nil {
+		s.log.Warn("rebaseline after confirm", "node", nodeID, "err", err)
 	}
 }
 
@@ -208,12 +223,13 @@ func (s *Server) reconcilePendingApply(nodeID, applyID string) {
 		return
 	}
 	callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	_, err = s.hub.Call(callCtx, nodeID, "uci.confirm", map[string]string{"apply_id": applyID})
+	res, err := s.hub.Call(callCtx, nodeID, "uci.confirm", map[string]string{"apply_id": applyID})
 	cancel()
 	if err != nil {
 		s.log.Warn("hello reconciliation: confirm failed", "change", changeID, "err", err)
 		return
 	}
+	s.rebaselineFromConfirm(ctx, nodeID, res)
 	if ok, err := s.store.DecideConfigChange(ctx, changeID, store.ChangeStatusConfirmed, ""); err == nil && ok {
 		s.log.Info("config change confirmed via reconnect", "change", changeID, "node", nodeID)
 	}

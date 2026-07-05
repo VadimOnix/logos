@@ -106,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/v1/nodes/{id}/config/changes", s.requireUser(s.handleListConfigChanges))
 	mux.Handle("POST /api/v1/nodes/{id}/config/changes", s.requireUser(s.handleApplyConfig))
 	mux.Handle("POST /api/v1/nodes/{id}/config/changes/{change_id}/rollback", s.requireUser(s.handleRollbackConfig))
+	mux.Handle("POST /api/v1/nodes/{id}/config/baseline", s.requireUser(s.handleAcceptConfigBaseline))
 
 	// Overlay networks (F7)
 	mux.Handle("GET /api/v1/overlays", s.requireUser(s.handleListOverlays))

@@ -31,6 +31,21 @@ type heartbeatMetrics struct {
 		TxBytes int64 `json:"tx_bytes"`
 	} `json:"interfaces"`
 	DHCPClients []json.RawMessage `json:"dhcp_clients"`
+	ConfigHash  string            `json:"config_hash"`
+}
+
+// ConfigHashFromMetrics extracts the agent-reported `uci export` fingerprint
+// from a raw heartbeat payload; empty when absent (non-UCI node) or the
+// payload is unparseable. Used for drift detection (v1.0).
+func ConfigHashFromMetrics(rawMetrics []byte) string {
+	if len(rawMetrics) == 0 {
+		return ""
+	}
+	var hm heartbeatMetrics
+	if err := json.Unmarshal(rawMetrics, &hm); err != nil {
+		return ""
+	}
+	return hm.ConfigHash
 }
 
 // RootFSUsedPct extracts the root-filesystem usage percentage from a raw
