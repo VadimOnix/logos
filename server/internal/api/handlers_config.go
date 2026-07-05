@@ -196,6 +196,55 @@ func (s *Server) confirmAfterDelay(changeID int64, nodeID string, revertSec int)
 	}
 }
 
+// applyChangeToNode is the HTTP-free core of a config push, used by
+// template application: it creates the versioned change row, invokes
+// uci.apply on the agent, records the pre-change snapshots, and starts the
+// same delayed-confirmation flow as the interactive endpoint. Errors are
+// returned for a per-node verdict instead of being written to a response.
+func (s *Server) applyChangeToNode(ctx context.Context, nodeID string, changes []uciChangeReq, revertSec int, userID int64) (*store.ConfigChange, error) {
+	n, err := s.store.GetNode(ctx, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("node not found")
+	}
+	if n.Status != store.NodeStatusEnrolled {
+		return nil, fmt.Errorf("node has left management")
+	}
+	changesJSON, err := json.Marshal(changes)
+	if err != nil {
+		return nil, err
+	}
+	change, err := s.store.CreateConfigChange(ctx, nodeID, "apply", changesJSON, userID)
+	if err != nil {
+		return nil, err
+	}
+	params := map[string]any{
+		"apply_id":           strconv.FormatInt(change.ID, 10),
+		"changes":            changes,
+		"revert_timeout_sec": revertSec,
+	}
+	callCtx, cancel := context.WithTimeout(ctx, rpcQueryTimeout)
+	res, err := s.hub.Call(callCtx, nodeID, "uci.apply", params)
+	cancel()
+	if err != nil {
+		if _, derr := s.store.DecideConfigChange(context.WithoutCancel(ctx), change.ID, store.ChangeStatusFailed, err.Error()); derr != nil {
+			s.log.Error("record failed config change", "change", change.ID, "err", derr)
+		}
+		return nil, err
+	}
+	var applied struct {
+		Snapshots map[string]string `json:"snapshots"`
+	}
+	if err := json.Unmarshal(res, &applied); err == nil && len(applied.Snapshots) > 0 {
+		if snaps, err := json.Marshal(applied.Snapshots); err == nil {
+			if err := s.store.SetConfigChangeSnapshots(ctx, change.ID, snaps); err != nil {
+				s.log.Error("store snapshots", "change", change.ID, "err", err)
+			}
+		}
+	}
+	go s.confirmAfterDelay(change.ID, nodeID, revertSec)
+	return change, nil
+}
+
 // rebaselineFromConfirm re-anchors drift detection to the post-change state:
 // a confirmed Logos change is by definition the new canonical config.
 func (s *Server) rebaselineFromConfirm(ctx context.Context, nodeID string, confirmRes json.RawMessage) {

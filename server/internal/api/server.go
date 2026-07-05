@@ -109,6 +109,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/v1/nodes/{id}/config/changes/{change_id}/rollback", s.requireUser(s.handleRollbackConfig))
 	mux.Handle("POST /api/v1/nodes/{id}/config/baseline", s.requireUser(s.handleAcceptConfigBaseline))
 
+	// Config templates (v1.0)
+	mux.Handle("GET /api/v1/config-templates", s.requireUser(s.handleListTemplates))
+	mux.Handle("POST /api/v1/config-templates", s.requireUser(s.handleCreateTemplate))
+	mux.Handle("DELETE /api/v1/config-templates/{id}", s.requireUser(s.handleDeleteTemplate))
+	mux.Handle("POST /api/v1/config-templates/{id}/apply", s.requireUser(s.handleApplyTemplate))
+
 	// Overlay networks (F7)
 	mux.Handle("GET /api/v1/overlays", s.requireUser(s.handleListOverlays))
 	mux.Handle("POST /api/v1/overlays", s.requireUser(s.handleCreateOverlay))
