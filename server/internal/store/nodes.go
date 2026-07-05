@@ -115,6 +115,18 @@ func (s *Store) TouchNode(ctx context.Context, id string, metrics []byte) error 
 	return err
 }
 
+// RenameNode changes the display name (also the overlay-DNS label source).
+func (s *Store) RenameNode(ctx context.Context, id, name string) error {
+	tag, err := s.pool.Exec(ctx, `update nodes set name = $2 where id = $1`, id, name)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // MarkNodeLeft flips a node to the "left" state and revokes its token so the
 // agent can no longer authenticate. Distinct from offline (PRD §4.4).
 func (s *Store) MarkNodeLeft(ctx context.Context, id string) error {

@@ -122,6 +122,7 @@
       <input id="pkg-name" placeholder="package name" style="width:160px">
       <button id="pkg-install">Install</button>
       <button id="pkg-remove" class="danger">Remove</button>
+      <button id="node-rename" title="Change the display name (also the overlay-DNS label)">Rename…</button>
       <button id="accept-baseline" hidden title="Adopt the node's current config as the drift baseline">Accept config drift</button>
       <button id="fw-upgrade" class="danger" title="Download, verify sha256 and sysupgrade — the node reboots">Upgrade firmware…</button>
       <span class="muted" id="detail-busy"></span>
@@ -420,6 +421,18 @@ async function bulkPkg(action) {
 $('bulk-install').onclick = () => bulkPkg('install');
 $('bulk-remove').onclick = () => bulkPkg('remove');
 $('bulk-update').onclick = () => bulkPkg('update');
+
+$('node-rename').onclick = async () => {
+  if (!selected) return;
+  const name = prompt(`New name for "${selected.name}" (overlay DNS names follow it):`, selected.name);
+  if (!name || name.trim() === selected.name) return;
+  try {
+    await api(`/api/v1/nodes/${selected.id}`, { method: 'PATCH', body: JSON.stringify({ name: name.trim() }) });
+    selected.name = name.trim();
+    $('detail-title').textContent = `Node: ${selected.name} (${selected.status})`;
+    refreshNodes();
+  } catch (err) { alert(err.message); }
+};
 
 $('fw-upgrade').onclick = async () => {
   if (!selected) return;
