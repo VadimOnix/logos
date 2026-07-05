@@ -557,10 +557,28 @@ function renderOverlay(o) {
   const head = document.createElement('div');
   head.className = 'row';
   head.style.justifyContent = 'space-between';
+  const hubMember = o.hub_node_id ? o.members.find(m => m.node_id === o.hub_node_id) : null;
+  const topo = o.hub_node_id ? `hub: ${hubMember ? hubMember.node_name : o.hub_node_id.slice(0, 8)}` : 'mesh';
   const title = document.createElement('div');
-  title.innerHTML = `<strong>${esc(o.name)}</strong> <span class="muted">${esc(o.cidr)} · ${o.members.length} member(s)</span>`;
+  title.innerHTML = `<strong>${esc(o.name)}</strong> <span class="muted">${esc(o.cidr)} · ${o.members.length} member(s) · ${esc(topo)}</span>`;
   const actions = document.createElement('div');
   actions.className = 'row';
+  const topoBtn = document.createElement('button');
+  topoBtn.textContent = o.hub_node_id ? 'Switch to mesh' : 'Set hub…';
+  topoBtn.onclick = async () => {
+    let nodeID = null;
+    if (!o.hub_node_id) {
+      const names = o.members.map((m, i) => `${i + 1}. ${m.node_name}`).join('\n');
+      const pick = prompt(`Hub member (spokes will route the overlay through it):\n${names}\n\nEnter a number:`);
+      if (!pick) return;
+      const m = o.members[parseInt(pick, 10) - 1];
+      if (!m) { alert('No such member.'); return; }
+      nodeID = m.node_id;
+    }
+    await api(`/api/v1/overlays/${o.id}/hub`, { method: 'POST', body: JSON.stringify({ node_id: nodeID }) })
+      .catch(e => alert(e.message));
+    refreshOverlays();
+  };
   const syncBtn = document.createElement('button');
   syncBtn.textContent = 'Sync now';
   syncBtn.onclick = async () => {
@@ -577,7 +595,7 @@ function renderOverlay(o) {
     await api(`/api/v1/overlays/${o.id}`, { method: 'DELETE' }).catch(e => alert(e.message));
     refreshOverlays();
   };
-  actions.append(syncBtn, delBtn);
+  actions.append(topoBtn, syncBtn, delBtn);
   head.append(title, actions);
   box.append(head);
 

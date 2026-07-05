@@ -131,3 +131,48 @@ func TestBuildHosts(t *testing.T) {
 		t.Errorf("fallback label: %+v", hosts[2])
 	}
 }
+
+func TestBuildSyncHubAndSpoke(t *testing.T) {
+	hubID := "hub-node"
+	o := &store.Overlay{ID: 1, Name: "mesh", CIDR: "100.90.0.0/24", HubNodeID: &hubID}
+	hub := &store.OverlayMember{NodeID: "hub-node", NodeName: "hub", NodeStatus: store.NodeStatusEnrolled,
+		OverlayIP: "100.90.0.1", PublicKey: "k-hub", ListenPort: 51821, NodeAddr: "203.0.113.1",
+		Subnets: []string{"192.168.1.0/24"}}
+	spokeA := &store.OverlayMember{NodeID: "a", NodeName: "a", NodeStatus: store.NodeStatusEnrolled,
+		OverlayIP: "100.90.0.2", PublicKey: "k-a", ListenPort: 51821,
+		Subnets: []string{"192.168.2.0/24"}}
+	spokeB := &store.OverlayMember{NodeID: "b", NodeName: "b", NodeStatus: store.NodeStatusEnrolled,
+		OverlayIP: "100.90.0.3", PublicKey: "k-b", ListenPort: 51821}
+	members := []*store.OverlayMember{hub, spokeA, spokeB}
+
+	// A spoke peers only with the hub and routes the whole overlay (plus
+	// every other member's subnets) through it.
+	sp := BuildSync(o, members, spokeA)
+	if len(sp.Peers) != 1 || sp.Peers[0].PublicKey != "k-hub" {
+		t.Fatalf("spoke peers: %+v", sp.Peers)
+	}
+	got := sp.Peers[0].AllowedIPs
+	want := []string{"100.90.0.0/24", "192.168.1.0/24"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("spoke allowed_ips = %v, want %v", got, want)
+	}
+	if sp.Peers[0].EndpointHost != "203.0.113.1" {
+		t.Errorf("spoke endpoint: %+v", sp.Peers[0])
+	}
+
+	// The hub still peers with every spoke individually.
+	sp = BuildSync(o, members, hub)
+	if len(sp.Peers) != 2 {
+		t.Fatalf("hub peers: %+v", sp.Peers)
+	}
+	if !reflect.DeepEqual(sp.Peers[0].AllowedIPs, []string{"100.90.0.2/32", "192.168.2.0/24"}) {
+		t.Errorf("hub allowed_ips for spoke a: %v", sp.Peers[0].AllowedIPs)
+	}
+
+	// Mesh (no hub) keeps the old any-to-any behaviour.
+	o.HubNodeID = nil
+	sp = BuildSync(o, members, spokeA)
+	if len(sp.Peers) != 2 {
+		t.Errorf("mesh peers: %+v", sp.Peers)
+	}
+}
