@@ -6,6 +6,7 @@ package overlay
 import (
 	"fmt"
 	"net/netip"
+	"strings"
 
 	"github.com/VadimOnix/logos/server/internal/store"
 )
@@ -28,6 +29,15 @@ type SyncParams struct {
 	Address    string     `json:"address"` // overlay IP with the overlay prefix, e.g. 100.90.0.2/24
 	ListenPort int        `json:"listen_port"`
 	Peers      []PeerSpec `json:"peers"`
+	// Hosts are overlay-DNS names (v1.0): every member, including the node
+	// itself, resolvable as <node>.<overlay>.logos on the device.
+	Hosts []HostEntry `json:"hosts,omitempty"`
+}
+
+// HostEntry is one overlay-DNS name pushed with the spec.
+type HostEntry struct {
+	Name string `json:"name"`
+	IP   string `json:"ip"`
 }
 
 // keepalive keeps NAT bindings open so two NATed peers can hold a session
@@ -129,5 +139,62 @@ func BuildSync(o *store.Overlay, members []*store.OverlayMember, self *store.Ove
 		}
 		sp.Peers = append(sp.Peers, peer)
 	}
+	sp.Hosts = buildHosts(o, members)
 	return sp
+}
+
+// buildHosts derives the overlay-DNS entries: one per enrolled member
+// (including the receiving node itself), named <node>.<overlay>.logos.
+// Name collisions after sanitizing are disambiguated with the node id
+// prefix so every member stays resolvable.
+func buildHosts(o *store.Overlay, members []*store.OverlayMember) []HostEntry {
+	zone := dnsLabel(o.Name)
+	if zone == "" {
+		zone = fmt.Sprintf("overlay%d", o.ID)
+	}
+	hosts := []HostEntry{}
+	seen := map[string]bool{}
+	for _, m := range members {
+		if m.NodeStatus != store.NodeStatusEnrolled || m.OverlayIP == "" {
+			continue
+		}
+		label := dnsLabel(m.NodeName)
+		if label == "" && len(m.NodeID) >= 8 {
+			label = m.NodeID[:8]
+		}
+		if label == "" {
+			continue
+		}
+		if seen[label] && len(m.NodeID) >= 8 {
+			label += "-" + m.NodeID[:8]
+		}
+		seen[label] = true
+		hosts = append(hosts, HostEntry{Name: label + "." + zone + ".logos", IP: m.OverlayIP})
+	}
+	return hosts
+}
+
+// dnsLabel reduces a free-form name to a valid lowercase hostname label:
+// anything outside [a-z0-9-] becomes '-', runs collapse, edges trim. Empty
+// when nothing survives.
+func dnsLabel(s string) string {
+	var b []byte
+	lastDash := true // suppress a leading dash
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
+			b = append(b, byte(r))
+			lastDash = false
+		default:
+			if !lastDash {
+				b = append(b, '-')
+				lastDash = true
+			}
+		}
+	}
+	out := strings.TrimRight(string(b), "-")
+	if len(out) > 63 {
+		out = strings.TrimRight(out[:63], "-")
+	}
+	return out
 }

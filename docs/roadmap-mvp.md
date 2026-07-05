@@ -147,9 +147,15 @@ Shipped after MVP completion, in small increments:
   heartbeat; the server compares it against a per-node accepted baseline
   (first contact / confirmed Logos change / explicit accept) and the panel
   flags "⚠ drift" with an accept action.
-- **Bulk package operations** — `POST /api/v1/nodes/packages/bulk` fans
-  install/remove/update out to many nodes (bounded concurrency, per-node
-  verdicts); panel buttons apply to all online nodes.
+- **Bulk package operations with staged rollout** — `POST
+  /api/v1/nodes/packages/bulk` fans install/remove/update out to many nodes
+  (bounded concurrency, per-node verdicts); optional canary stage aborts the
+  rollout if the first nodes fail; panel buttons apply to all online nodes.
+- **Memory-pressure alerts** — opt-in `LOGOS_ALERT_MEM_PCT` rule beside the
+  low-flash one (same hysteresis and persisted per-node state).
+- **Overlay DNS** — every overlay member resolves as
+  `<node>.<overlay>.logos` on member devices: the sync spec carries a hosts
+  list, the agent publishes it via `/tmp/hosts` (picked up by dnsmasq).
 - **Ops hardening** — `/readyz` readiness probe (DB ping) wired into the
   compose healthcheck, and a production Caddy overlay with automatic HTTPS.
 

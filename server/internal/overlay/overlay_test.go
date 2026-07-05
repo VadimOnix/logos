@@ -94,3 +94,40 @@ func TestFindOverlap(t *testing.T) {
 		t.Error("overlap reported against no overlays")
 	}
 }
+
+func TestDNSLabel(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"Office Router", "office-router"},
+		{"кухня", ""}, // nothing survives → caller falls back
+		{"router_2 (attic)", "router-2-attic"},
+		{"--x--", "x"},
+		{"UPPER", "upper"},
+	} {
+		if got := dnsLabel(tc.in); got != tc.want {
+			t.Errorf("dnsLabel(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestBuildHosts(t *testing.T) {
+	o := &store.Overlay{ID: 3, Name: "Home Mesh"}
+	members := []*store.OverlayMember{
+		{NodeID: "aaaaaaaa-1", NodeName: "Office Router", NodeStatus: store.NodeStatusEnrolled, OverlayIP: "100.90.0.2"},
+		{NodeID: "bbbbbbbb-2", NodeName: "office router", NodeStatus: store.NodeStatusEnrolled, OverlayIP: "100.90.0.3"}, // collides after sanitizing
+		{NodeID: "cccccccc-3", NodeName: "кухня", NodeStatus: store.NodeStatusEnrolled, OverlayIP: "100.90.0.4"},         // non-latin → id fallback
+		{NodeID: "dddddddd-4", NodeName: "gone", NodeStatus: store.NodeStatusLeft, OverlayIP: "100.90.0.5"},              // left → skipped
+	}
+	hosts := buildHosts(o, members)
+	if len(hosts) != 3 {
+		t.Fatalf("got %d hosts: %+v", len(hosts), hosts)
+	}
+	if hosts[0].Name != "office-router.home-mesh.logos" || hosts[0].IP != "100.90.0.2" {
+		t.Errorf("first: %+v", hosts[0])
+	}
+	if hosts[1].Name != "office-router-bbbbbbbb.home-mesh.logos" {
+		t.Errorf("collision not disambiguated: %+v", hosts[1])
+	}
+	if hosts[2].Name != "cccccccc.home-mesh.logos" {
+		t.Errorf("fallback label: %+v", hosts[2])
+	}
+}
